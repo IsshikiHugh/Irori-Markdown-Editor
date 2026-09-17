@@ -1,5 +1,23 @@
 # 更新记录
 
+## v0.1.5 — 2026-09-17
+
+### 书写
+
+- **列表**：`-`、`*`、`+` 与 `1.` 开头的列表项，符号着色，并按层级缩进；长项折行后与正文对齐，编号在点上右对齐（`9.` 与 `10.` 对齐）。
+- **列表续写**：在列表项中按回车自动生成下一项，编号递增；在空项上按回车先退出一级，再结束列表。
+- **移除**：段首连续输入两个空格自动转为全角缩进的功能已去除。
+
+### 安装
+
+- **macOS**：`Irori_0.1.5_aarch64.dmg`（Apple Silicon）、`Irori_0.1.5_x64.dmg`（Intel）
+- **Windows**：`Irori_0.1.5_x64-setup.exe` 或 `Irori_0.1.5_x64_en-US.msi`，任选其一
+- **Linux**：`.deb`、`.rpm` 与 `.AppImage`
+
+安装包尚未签名。macOS 若提示应用「已损坏」，可在终端执行
+`xattr -dr com.apple.quarantine /Applications/Irori.app` 后再打开；
+Windows 若出现 SmartScreen 提示，选择「更多信息 → 仍要运行」。
+
 ## v0.1.4 — 2026-09-17
 
 Irori 的首个公开版本。
