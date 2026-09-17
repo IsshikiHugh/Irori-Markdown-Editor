@@ -64,15 +64,17 @@ export class TauriPlatform implements Platform {
   onCloseRequested(handler: () => boolean | Promise<boolean>) {
     const win = getCurrentWindow();
     void win.onCloseRequested(async (event) => {
-      // 一旦注册了这个监听，Tauri 就会先拦下原生关闭，等回调结束后再自己去 destroy() ——
-      // 而 destroy 需要 core:window:allow-destroy 权限，没有的话它**静默失败**，窗口就一直在
-      // （表现为「弹窗里点了关闭，窗口却没关」）。所以这里统一由我们自己决定、自己销毁，失败要看得见。
+      // Once this listener is registered, Tauri intercepts the native close and calls destroy()
+      // itself after the callback returns — but destroy needs the core:window:allow-destroy
+      // permission, and without it it **fails silently** and the window stays open (symptom:
+      // "clicked Close in the dialog, but the window didn't close"). So we always decide and
+      // destroy it ourselves, and a failure must be visible.
       event.preventDefault();
       if (!(await handler())) return;
       try {
         await win.destroy();
       } catch (err) {
-        console.error('关闭窗口失败', err);
+        console.error('Failed to close window', err);
         alert('关闭窗口失败：' + String(err));
       }
     });

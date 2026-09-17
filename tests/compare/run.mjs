@@ -1,12 +1,13 @@
-/* 对照实验（ADR-0002 第三步 · 第一轮）：同一个 Chrome 引擎下，新编辑器 vs 旧编辑器。
+/* Comparison run (ADR-0002 step 3 · round 1): new editor vs legacy editor on the same Chrome engine.
  *
- * 这不是单元测试，而是「体验一致」的证据：同一篇文章，同一套几何与配色断言，两边各测一遍再比。
- * 旧编辑器（博客里那个）是基准，只读不改。
+ * This is not a unit test but evidence that the experience matches: same post, same set of geometry and
+ * color probes, measured on both sides and then compared.
+ * The legacy editor (the one in the blog) is the baseline; it is read, never modified.
  *
- *   IRORI_LEGACY_BLOG=/path/to/blog node tests/compare/run.mjs --slug <文章的-slug>
- *   IRORI_LEGACY_BLOG=... node tests/compare/run.mjs --slug <文章的-slug> --shots
+ *   IRORI_LEGACY_BLOG=/path/to/blog node tests/compare/run.mjs --slug <post-slug>
+ *   IRORI_LEGACY_BLOG=... node tests/compare/run.mjs --slug <post-slug> --shots
  *
- * 没有设 IRORI_LEGACY_BLOG 时直接跳过（CI 上没有那个仓库，这很正常）。
+ * Skipped when IRORI_LEGACY_BLOG is not set (CI does not have that repo, which is expected).
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -22,19 +23,19 @@ const SHOTS = args.includes('--shots');
 const OUT = arg('--out', path.join(os.tmpdir(), 'irori-compare'));
 
 if (!BLOG) {
-  console.log('› 跳过对照实验：未设置 IRORI_LEGACY_BLOG（指向旧编辑器所在的博客仓库）');
+  console.log('› skipping comparison: IRORI_LEGACY_BLOG is not set (point it at the blog repo that has the legacy editor)');
   process.exit(0);
 }
 if (!SLUG) {
-  console.error('✗ 需要 --slug <文章的-slug>：拿博客里的哪一篇来比');
+  console.error('✗ --slug <post-slug> is required: which blog post to compare');
   process.exit(2);
 }
 if (!fs.existsSync(path.join(BLOG, 'editor/server.js'))) {
-  console.error(`✗ ${BLOG} 里没有 editor/server.js —— IRORI_LEGACY_BLOG 应指向博客仓库根目录`);
+  console.error(`✗ no editor/server.js in ${BLOG} — IRORI_LEGACY_BLOG should point at the blog repo root`);
   process.exit(2);
 }
 
-/* 旧编辑器跑在 source/_posts 的临时副本上，真实文章绝不被碰。 */
+/* The legacy editor runs on a temporary copy of source/_posts; real posts are never touched. */
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'irori-compare-'));
 fs.mkdirSync(path.join(root, 'source/_posts'), { recursive: true });
 fs.cpSync(path.join(BLOG, 'source/_posts'), path.join(root, 'source/_posts'), { recursive: true });
@@ -50,13 +51,13 @@ const up = async () => {
     } catch {}
     await sleep(100);
   }
-  throw new Error('旧编辑器没能启动');
+  throw new Error('legacy editor failed to start');
 };
 
-/* 两边都测同一组东西。全部是「肉眼会注意到」的量。 */
+/* Both sides measure the same set of things, all of them quantities the eye would notice. */
 const PROBE = `(() => {
   const rows = [...document.querySelectorAll(SELECTOR)];
-  // 只比真正的文字段落：图片行（含「图片未找到」那种）在两边的 DOM 形态本来就不同（D-32）
+  // Compare real text paragraphs only: image rows (including "image not found" ones) have different DOM shapes on each side by design (D-32)
   const plain = rows.filter(
     (r) => /^[^#>!]/.test(r.textContent) && r.textContent.trim().length > 30 && !r.querySelector('.imgwrap,.imgmiss'),
   );
@@ -68,8 +69,9 @@ const PROBE = `(() => {
   const tok = document.querySelector(SELECTOR + ' .tok');
   const lnk = document.querySelector(SELECTOR + ' .lnk');
   const url = document.querySelector(SELECTOR + ' .url');
-  // 新编辑器是虚拟滚动的，视口外的行根本不存在 —— 所以对「某个类长什么样」这种问题，
-  // 临时插一个空节点去量，两边问的就是同一个 CSS 规则，而不是碰运气看有没有渲染到。
+  // The new editor uses virtual scrolling, so lines outside the viewport do not exist at all — for questions like
+  // "what does this class look like", insert a temporary empty node and measure it, so both sides query the same
+  // CSS rule instead of depending on whether such a line happens to be rendered.
   const probeClass = (cls, prop) => {
     const host = document.querySelector(SELECTOR) || document.body;
     const el = document.createElement('span');
@@ -98,7 +100,7 @@ const PROBE = `(() => {
     linkColor: lnk && cs(lnk).color,
     urlColor: url && cs(url).color,
     paperBg: getComputedStyle(document.body).backgroundColor,
-    // 字体是否真的一样：量一段固定文字的实际宽度（族名可能不同，但字形度量必须一致）
+    // Whether the font is really the same: measure the actual width of a fixed string (family names may differ, but glyph metrics must match)
     sampleWidth: (() => {
       const host = document.querySelector(SELECTOR) || document.body;
       const el = document.createElement('span');
@@ -113,7 +115,7 @@ const PROBE = `(() => {
     tocFirst: (document.querySelector('#toc .toc-link') || {}).textContent,
     minimapWidth: document.getElementById('mini').clientWidth,
     minimapScale: document.getElementById('miniContent').style.transform,
-    // 每个长段落占几行 —— 换行位置只要差一个字，这里就会变
+    // How many lines each long paragraph wraps to — if a wrap point moves by even one character, this changes
     wraps: plain.slice(0, 6).map((r) => Math.round(r.getBoundingClientRect().height / lineH)),
   };
 })()`;
@@ -123,7 +125,7 @@ const probe = (page, selector) => page.evaluate(PROBE.replace(/SELECTOR/g, JSON.
 await up();
 const post = await (await fetch(`http://127.0.0.1:${PORT}/api/posts/${encodeURIComponent(SLUG)}`)).json();
 if (!post || !post.content) {
-  console.error(`✗ 博客里没有 ${SLUG}`);
+  console.error(`✗ no post ${SLUG} in the blog`);
   legacy.kill();
   process.exit(2);
 }
@@ -132,7 +134,7 @@ const { server, port } = await serveDist();
 const browser = await launch();
 browser.__base = `http://127.0.0.1:${port}`;
 
-/* --- 旧 --- */
+/* --- legacy --- */
 const old = await browser.newPage();
 await old.setViewport({ width: 1440, height: 900 });
 old.on('dialog', (d) => d.accept().catch(() => {}));
@@ -142,7 +144,7 @@ await old.evaluate((s) => [...document.querySelectorAll('#listwrap .lrow')].find
 await sleep(1400);
 const before = await probe(old, '#body .ln');
 
-/* --- 新 --- 同一篇正文；图片路径按通用相对路径改写（Hexo 的「只写文件名」约定不兼容，见 D-08） */
+/* --- new --- same post body; image paths rewritten as plain relative paths (Hexo's bare-file-name convention is not supported, see D-08) */
 const assets = {};
 const assetDir = path.join(root, 'source/_posts', SLUG);
 if (fs.existsSync(assetDir))
@@ -162,14 +164,14 @@ await browser.close();
 server.close();
 legacy.kill();
 
-/* --- 比 --- */
+/* --- compare --- */
 const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
 const same = [];
 const diff = [];
 for (const k of keys) {
   let x = before[k];
   let y = after[k];
-  // 虚拟滚动：新编辑器只渲染一屏，所以只比两边都有的那几段
+  // Virtual scrolling: the new editor renders only one screen, so compare only the paragraphs both sides have
   if (k === 'wraps' && Array.isArray(x) && Array.isArray(y)) {
     const n = Math.min(x.length, y.length);
     x = x.slice(0, n);
@@ -179,12 +181,12 @@ for (const k of keys) {
   const b = JSON.stringify(y);
   (a === b ? same : diff).push({ k, a, b });
 }
-console.log(`\n对照：${SLUG}（旧 = blog/editor，新 = Irori，同一 Chrome 引擎）\n`);
-console.log(`  ✓ 一致 ${same.length} 项：${same.map((x) => x.k).join(', ')}`);
+console.log(`\nComparison: ${SLUG} (old = blog/editor, new = Irori, same Chrome engine)\n`);
+console.log(`  ✓ ${same.length} matching: ${same.map((x) => x.k).join(', ')}`);
 if (diff.length) {
-  console.log(`\n  ✗ 不一致 ${diff.length} 项：`);
-  for (const d of diff) console.log(`     ${d.k}\n        旧 ${d.a}\n        新 ${d.b}`);
-  console.log('\n  每一项要么修掉，要么写进 docs/acceptance/deviations.md 并获批准。');
+  console.log(`\n  ✗ ${diff.length} differing:`);
+  for (const d of diff) console.log(`     ${d.k}\n        old ${d.a}\n        new ${d.b}`);
+  console.log('\n  Each one must either be fixed or recorded in docs/acceptance/deviations.md and approved.');
 }
-if (SHOTS) console.log(`\n  截图：${OUT}/legacy.png · ${OUT}/irori.png`);
+if (SHOTS) console.log(`\n  Screenshots: ${OUT}/legacy.png · ${OUT}/irori.png`);
 process.exit(diff.length ? 1 : 0);

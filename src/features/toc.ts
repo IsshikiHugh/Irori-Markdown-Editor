@@ -1,8 +1,8 @@
 /* The left-hand table of contents: h1–h3, click to scroll, current section highlighted.
 
    Note what is NOT special-cased here: the document's first `#` heading. It is a
-   heading like any other, because in this editor the title IS that line (CONTEXT.md →
-   **标题**) — no detached title field, no exclusion from the outline. */
+   heading like any other, because in this editor the title IS that line (see the
+   language section of CONTEXT.md) — no detached title field, no exclusion from the outline. */
 
 import type { EditorView } from '@codemirror/view';
 import type { Glide } from './glide';
@@ -26,7 +26,8 @@ export function createTOC(
   list: HTMLElement,
   spyLine: () => number,
   glide: Glide,
-  /** 聚焦正文但不改滚动位置（WebKit 会把光标滚进视野，那会打断这次跳转） */
+  /** focus the text without changing the scroll position (WebKit would scroll the caret into
+      view, which interrupts this jump) */
   focusEditor: () => void,
 ) {
   let heads: Heading[] = [];
@@ -42,7 +43,7 @@ export function createTOC(
       a.textContent = h.text;
       a.onclick = (e) => {
         e.preventDefault();
-        // 滑过去，而不是瞬移：同一条渐入渐出曲线（features/glide.ts）
+        // glide there instead of teleporting: the same ease-in/ease-out curve (features/glide.ts)
         glide.to(() => view.lineBlockAt(h.pos).top + view.documentPadding.top - 20);
         focusEditor();
       };

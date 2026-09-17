@@ -4,7 +4,8 @@
    The row classes (.ln, .h1…, .quote, .tok, .code, .lnk …) are shared by three renderers:
    the CodeMirror line decorations, the minimap clone, and the unit-test HTML renderer. */
 :root{--paper:#f7f3ec;--ink:#383838;--sub:#666;--line:#e7dfd2;--accent:#A27B5C;--accent-soft:#f1ebe6;--rail:#fbf8f2;--draft:#b07d1a;--live:#4a7a52;--link:#886a53;--tok:#c3b7a4;--ftop:20%;--fbot:80%;
-  /* 本机已安装的霞鹜文楷有好几种族名（GB Fusion / Mono / …），逐个回退，最后落到系统中文字体 */
+  /* a locally installed LXGW WenKai goes by several family names (GB Fusion / Mono / …):
+     try each in turn, finally falling back to the system Chinese font */
   --font-body:"LXGW WenKai GB Fusion","LXGW WenKai GB","LXGW WenKai Mono","LXGW WenKai","霞鹜文楷","PingFang SC","Microsoft YaHei",Arial,sans-serif;}
 *{box-sizing:border-box;}
 html,body{height:100%;}
@@ -13,32 +14,40 @@ html{scrollbar-width:none;-ms-overflow-style:none;} html::-webkit-scrollbar,body
 body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);overflow:hidden;}
 ::selection{background:#E3D9CC;} ::-moz-selection{background:#E3D9CC;}
 .stage{height:100vh;padding:0 120px 0 20px;display:flex;flex-direction:column;}
-/* 顶部标题栏：整条横贯窗口、整条可拖拽，且**不属于编辑器** ——
-   正文滚动不会滚到它下面，专注模式的渐隐也盖不住它（渐隐层挂在编辑器里面）。 */
+/* Top title bar: spans the whole window, draggable end to end, and **not part of the editor** —
+   text never scrolls under it, and focus mode's fade can't cover it (the fade layer lives inside
+   the editor). */
 .topline{width:100%;flex:none;padding:18px 24px 10px;font-family:var(--font-body);font-size:13px;color:var(--sub);position:relative;z-index:6;-webkit-app-region:drag;}
 .topline-inner{max-width:700px;width:100%;margin:0 auto;display:flex;align-items:center;gap:10px;}
 .topline .st{display:flex;align-items:center;gap:6px;color:var(--draft);} .topline .st .d{width:7px;height:7px;border-radius:50%;background:var(--draft);}
 .topline .st{color:var(--sub);}
 .topline .spacer{flex:1;} .topline .mono{font-family:ui-monospace,Menlo,monospace;}
-/* 保存状态就是文件名前面那颗点：红=未保存，琥珀=正在写盘，绿=已保存（文字在 title 里） */
+/* the save state is the dot before the filename: red = unsaved, amber = writing to disk,
+   green = saved (the wording is in title) */
 .topline .st .d{transition:background .2s;}
 .topline .st[data-state="dirty"] .d{background:#c0563f;}
 .topline .st[data-state="saving"] .d{background:var(--accent);}
 .topline .st[data-state="saved"] .d{background:var(--live);}
-/* 透明标题栏（macOS）：顶栏就是红绿灯那一行（28px），文件名居中在里面。
-   负外边距抵掉舞台的左右内边距 → 横贯窗口，左缘留白和缩略图顶端也都能拖；
-   内边距左 80 / 右 180：让开红绿灯，且左右差 100px 与舞台（20/120）同轴 ——
-   文件名对着文字列与卷首花饰的中线，而不是整个窗口的中线（差着缩略图那一截）。长文件名省略号截断。
-   z-index 9：压过缩略图（8），让给遮罩与抽屉（10/11）—— 抽屉开着时它的 ✕ 不会被挡住。 */
+/* Transparent title bar (macOS): the top bar is the traffic-light row (28px), with the filename
+   centered in it. Negative margins cancel the stage's side padding → spans the window, so the left
+   gutter and the top of the minimap are draggable too;
+   padding left 80 / right 180: clears the traffic lights, and the 100px left/right difference keeps
+   it on the same axis as the stage (20/120) — the filename centers on the text column and the head
+   ornament, not on the whole window (which is off by the minimap's width). Long filenames are
+   truncated with an ellipsis.
+   z-index 9: above the minimap (8), below the scrim and drawer (10/11) — so the drawer's ✕ isn't
+   covered while it's open. */
 body.overlay-titlebar .topline{margin:0 -120px 0 -20px;width:auto;height:28px;padding:0 180px 0 80px;z-index:9;}
 body.overlay-titlebar .topline-inner{max-width:none;height:100%;justify-content:center;}
 body.overlay-titlebar .topline .st{min-width:0;}
 body.overlay-titlebar #filename{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-/* 缩略图的选框让到顶栏下面：28px 标题栏 + 4px（minimap.ts 读 --mini-top） */
+/* the minimap's viewport box stays below the top bar: 28px title bar + 4px (minimap.ts reads
+   --mini-top) */
 body.overlay-titlebar .mini{--mini-top:32px;}
 .topline[data-tauri-drag-region]{cursor:default;user-select:none;}
-/* 书写区占满整个舞台，文字列的宽度由 .cm-content 自己限制 —— 这样滚轮在正文两侧的
-   空白上也能滚动（滚动容器就是整片区域），而不是只有悬停在那 700px 文字上才有效 */
+/* The writing area fills the whole stage; .cm-content caps the text column's width itself — so the
+   wheel also scrolls over the blank margins beside the text (the scroll container is the whole
+   area), not only while hovering over those 700px of text */
 .sheet{width:100%;max-width:none;margin:0;padding:0;display:flex;flex-direction:column;flex:1;min-height:0;}
 .body{flex:1;min-height:0;}
 
@@ -51,13 +60,16 @@ body.overlay-titlebar .mini{--mini-top:32px;}
    specificity as a bare class — so every geometry rule that must win is scoped to
    `.cm-editor`. Getting this wrong costs 4px of line width, which is enough to change
    where a paragraph wraps (caught by the side-by-side comparison against the old editor). */
-/* 内容盒 = 文字列本身（652px）。CodeMirror 画选区时按整个内容盒的宽度画，
-   所以这里多一分内边距，跨行选区就会比行高亮宽出一圈。 */
+/* Content box = the text column itself (652px). CodeMirror draws the selection across the full
+   content-box width, so any extra padding here makes multi-line selections stick out wider than
+   the line highlight. */
 .cm-editor .cm-content{max-width:652px;margin:0 auto;padding:44px 0 85vh;caret-color:transparent;}
 .cm-editor .cm-line{padding:0;}
-/* 卷首花饰：告诉你「这里是文本的最开头」。两根向中间收拢的发丝，托着一颗空心菱形 ——
-   和目录里「当前节」那颗 ◆ 是同一个语汇。画在内容盒顶部的留白里（伪元素），不占行、不改任何几何，
-   跟着正文一起滚走；专注模式把顶部留白撑大时，经 --pad-top 跟着第一行下移。 */
+/* Head ornament: tells you "this is the very start of the text". Two hairlines tapering toward the
+   middle, cradling a hollow diamond — the same vocabulary as the ◆ marking the current section in
+   the TOC. Drawn in the content box's top padding (pseudo-elements): takes no line, changes no
+   geometry, and scrolls away with the text; when focus mode enlarges the top padding, it follows the
+   first line down via --pad-top. */
 .cm-editor .cm-content{position:relative;--pad-top:44px;}
 .cm-editor .cm-content::before,.cm-editor .cm-content::after{content:"";position:absolute;pointer-events:none;}
 .cm-editor .cm-content::before{left:calc(50% - 130px);width:260px;top:calc(var(--pad-top) - 24px);height:1px;
@@ -75,18 +87,21 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .cm-editor.ime .cm-cursor{display:none!important;}
 /* custom text caret: CodeMirror draws it (drawSelection), we give it the soft accent bar
    and the smooth breathing fade the native caret could never have. */
-/* CodeMirror 的光标本体是一条 1.2px 的黑色左边框；我们画的是 2px 的暖褐色块。
-   不把那条边框去干净，就会看见一深一浅两条。CM 的样式是运行时注入的、与裸类同权重，
-   所以这里既提权到 .cm-editor，也留着 !important。 */
+/* CodeMirror's own caret is a 1.2px black left border; ours is a 2px warm-brown block.
+   Unless that border is removed completely you see two bars, one dark and one light. CM's styles
+   are injected at runtime with the same specificity as a bare class, so this rule is both scoped
+   up to .cm-editor and kept !important. */
 .cm-editor .cm-cursor,.cm-editor .cm-dropCursor{border:none!important;width:2px;border-radius:1px;background:var(--accent);}
 .cm-focused .cm-cursor{animation:caretfade 1.15s ease-in-out infinite;}
 .cm-focused.caretmove .cm-cursor{animation:none;opacity:1;}
-/* 渐出（18%→50%）与渐入（50%→82%）对称，两头各留一段实心停顿；
-   ease-in-out 作用在每一段上，所以明暗都是柔和过渡，不是硬切。 */
+/* fade-out (18%→50%) and fade-in (50%→82%) are symmetric, with a solid hold at each end;
+   ease-in-out applies to each segment, so dimming and brightening are both soft transitions, not
+   hard cuts. */
 @keyframes caretfade{0%,18%{opacity:1;}50%{opacity:0;}82%,100%{opacity:1;}}
-/* 选区由 CodeMirror 绘制，而不是浏览器原生：原生选区每一个折行都停在该行最后一个字上，
-   右缘参差不齐；CodeMirror 画的是规整的矩形（宽度 = 内容盒 = 文字列）。
-   两者同时上色会叠成两层，所以编辑器内把原生的关掉。 */
+/* The selection is drawn by CodeMirror, not the browser: the native selection stops each wrapped
+   line at its last character, leaving a ragged right edge; CodeMirror draws clean rectangles
+   (width = content box = text column). Coloring both would stack two layers, so the native one is
+   turned off inside the editor. */
 .cm-editor .cm-selectionBackground{background:#E3D9CC!important;}
 .cm-editor .cm-content ::selection{background:transparent!important;}
 .cm-editor .cm-line::selection{background:transparent!important;}
@@ -139,13 +154,16 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .mini .vp{position:absolute;left:0;right:0;background:rgba(162,123,92,.2);border:none;cursor:grab;} .mini .vp:active{cursor:grabbing;background:rgba(162,123,92,.28);}
 
 /* ---- focus mode ---- */
-/* 专注模式的渐隐层挂在编辑器内部：
-   - z-index 100 在正文之上、在 CodeMirror 光标层（150）之下 → 光标永远看得见；
-   - 它的盒子就是编辑器本身 → 顶部标题栏、目录、缩略图都不受影响，
-     而且渐隐的百分比与聚焦带的百分比算在同一个坐标系里（以前一个按窗口、一个按编辑器，差着顶栏那一截）。 */
-/* isolation:isolate 让编辑器成为一个独立的层叠上下文 —— 里面那层渐隐（z-index 100）
-   和光标层（150）只在编辑器内部排队，不会跑到抽屉、遮罩、缩略图前面去。
-   （position:relative 而 z-index:auto 是不产生层叠上下文的，之前正是栽在这里。） */
+/* Focus mode's fade layer lives inside the editor:
+   - z-index 100 is above the text and below CodeMirror's cursor layer (150) → the caret is
+     always visible;
+   - its box is the editor itself → the top title bar, TOC and minimap are unaffected,
+     and the fade percentages and focus-band percentages share one coordinate system (previously one
+     was relative to the window and the other to the editor, off by the top bar's height). */
+/* isolation:isolate makes the editor its own stacking context — the fade layer (z-index 100)
+   and the cursor layer (150) inside it only stack within the editor, never in front of the drawer,
+   scrim or minimap. (position:relative with z-index:auto does not create a stacking context —
+   that is exactly what bit us before.) */
 .cm-editor{position:relative;isolation:isolate;}
 .fade{position:absolute;inset:0;z-index:100;pointer-events:none;opacity:0;transition:opacity .3s ease;}
 body.focusmode .fade{opacity:1;}
@@ -160,7 +178,8 @@ body.focusmode .fade{opacity:1;}
 .hair:hover{height:120px;width:4px;opacity:.85;}
 body.menuopen .hair{opacity:0;pointer-events:none;}
 .scrim{position:fixed;inset:0;background:rgba(40,32,24,.18);opacity:0;pointer-events:none;transition:opacity .2s;z-index:10;} body.menuopen .scrim{opacity:1;pointer-events:auto;}
-/* 抽屉、目录、顶栏都是界面 chrome：双击不该在上面划出一片选区（正文和对话框除外） */
+/* the drawer, TOC and top bar are UI chrome: a double-click there shouldn't paint a selection
+   (the text and dialogs excepted) */
 .drawer,.post-toc,.topline{user-select:none;-webkit-user-select:none;}
 .drawer input,.drawer textarea{user-select:text;-webkit-user-select:text;}
 .conflict .ctext{user-select:text;-webkit-user-select:text;}

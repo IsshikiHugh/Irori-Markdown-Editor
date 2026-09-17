@@ -1,5 +1,5 @@
-/* 性能目标（CONTEXT.md 约束）：单篇十万字仍然流畅；图片数量不设上限，
-   滚出视口的图片必须被卸载，不常驻内存。 */
+/* Performance targets (CONTEXT.md constraints): a single 100k-character document stays smooth; there is no cap
+   on the number of images, and images scrolled out of the viewport must be unloaded, not kept in memory. */
 import { sleep } from '../harness.mjs';
 
 const bigDoc = () => {
@@ -24,7 +24,7 @@ const manyImages = () => {
 export const cases = [
   {
     id: 'B-70',
-    name: '十万字文档：秒开，且 DOM 里只有一屏的行',
+    name: '100k-character document: opens instantly, and the DOM holds only one screen of lines',
     async run(t, ctx) {
       const doc = bigDoc();
       const chars = doc.length;
@@ -32,19 +32,19 @@ export const cases = [
       const page = await ctx.open({ files: { '/n/big.md': doc }, startup: '/n/big.md' });
       await sleep(300);
       const bootMs = Date.now() - started;
-      t.ok('文档确实超过十万字', chars > 100000, String(chars));
-      t.ok('打开耗时可接受（含浏览器启动页）', bootMs < 8000, bootMs + 'ms');
+      t.ok('document really exceeds 100k characters', chars > 100000, String(chars));
+      t.ok('open time is acceptable (including browser page startup)', bootMs < 8000, bootMs + 'ms');
       const rendered = await page.evaluate(() => document.querySelectorAll('.cm-content .cm-line').length);
-      t.ok('渲染的行数远小于总行数', rendered < 300, String(rendered));
+      t.ok('rendered lines are far fewer than total lines', rendered < 300, String(rendered));
       const total = await page.evaluate(() => window.__irori.view.state.doc.lines);
-      t.ok('文档行数很大', total > 3000, String(total));
+      t.ok('document has many lines', total > 3000, String(total));
       const miniRows = await page.evaluate(() => document.getElementById('miniContent').children.length);
-      t.ok('缩略图也是按需渲染', miniRows <= 1200, String(miniRows));
+      t.ok('minimap is also rendered on demand', miniRows <= 1200, String(miniRows));
     },
   },
   {
     id: 'B-71',
-    name: '十万字文档：输入延迟仍然很低',
+    name: '100k-character document: input latency stays low',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/big.md': bigDoc() }, startup: '/n/big.md' });
       await sleep(300);
@@ -58,30 +58,30 @@ export const cases = [
         for (let i = 0; i < 40; i++) v.dispatch({ changes: { from: pos + i, insert: '字' } });
         return performance.now() - t0;
       });
-      t.ok('40 次插入的总耗时 < 1200ms', ms < 1200, ms.toFixed(0) + 'ms');
+      t.ok('40 inserts take < 1200ms in total', ms < 1200, ms.toFixed(0) + 'ms');
       const per = ms / 40;
-      t.ok('单次 < 30ms', per < 30, per.toFixed(1) + 'ms');
+      t.ok('each insert < 30ms', per < 30, per.toFixed(1) + 'ms');
     },
   },
   {
     id: 'B-72',
-    name: '几百张图：只有视口内的图片存在于 DOM（滚出即卸载）',
+    name: 'Hundreds of images: only images in the viewport exist in the DOM (unloaded once scrolled out)',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/many.md': manyImages() }, startup: '/n/many.md' });
       await sleep(400);
       const top = await page.evaluate(() => document.querySelectorAll('.cm-content img').length);
-      t.ok('一屏内的图片数量很少', top < 30, String(top));
+      t.ok('few images within one screen', top < 30, String(top));
       await page.evaluate(() => (window.__irori.view.scrollDOM.scrollTop = 12000));
       await sleep(400);
       const mid = await page.evaluate(() => document.querySelectorAll('.cm-content img').length);
-      t.ok('滚动后依然只有一屏的量', mid < 30, String(mid));
+      t.ok('still only one screen worth after scrolling', mid < 30, String(mid));
       const total = await page.evaluate(() => (window.__irori.view.state.doc.toString().match(/!\[\]/g) || []).length);
-      t.eq('文档里确实有 300 张图', total, 300);
+      t.eq('document really has 300 images', total, 300);
     },
   },
   {
     id: 'B-73',
-    name: '撤销历史不保存全文快照（长文反复编辑后内存不爆）',
+    name: 'Undo history does not store full-text snapshots (memory does not blow up after repeated edits to a long doc)',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/big.md': bigDoc() }, startup: '/n/big.md' });
       await sleep(300);
@@ -97,12 +97,12 @@ export const cases = [
       });
       if (grown.before) {
         const mb = (grown.after - grown.before) / 1048576;
-        // 300 次编辑 × 十万字全文快照 ≈ 30MB+；增量历史应该远低于此
-        t.ok('300 次编辑后堆增长 < 20MB', mb < 20, mb.toFixed(1) + 'MB');
+        // 300 edits × a 100k-character full snapshot ≈ 30MB+; incremental history should be far below that
+        t.ok('heap growth < 20MB after 300 edits', mb < 20, mb.toFixed(1) + 'MB');
       } else {
-        t.ok('（此浏览器不暴露 performance.memory，跳过内存断言）', true, '');
+        t.ok('(this browser does not expose performance.memory; skipping the memory assertion)', true, '');
       }
-      t.ok('文档仍然完整', grown.docChars > 100000, String(grown.docChars));
+      t.ok('document is still intact', grown.docChars > 100000, String(grown.docChars));
     },
   },
 ];

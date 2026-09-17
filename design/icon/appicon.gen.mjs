@@ -1,18 +1,23 @@
-/* macOS 应用图标：把定稿的「囲炉裏」标摆进一枚圆角纸片。
+/* macOS app icon: places the final Irori mark on a rounded paper plate.
  *   node design/icon/appicon.gen.mjs && node design/icon/render.mjs out/irori-app.svg
  *   npm run tauri -- icon design/icon/out/irori-app.png
  *
- * 标本身（hearth.gen.mjs）是透明底的纯矢量，这里只负责「底座 + 定位」两件事：
+ * The mark itself (hearth.gen.mjs) is pure vector on a transparent background; this file only
+ * handles two things, "plate + placement":
  *
- *   底座 —— macOS 图标网格：1024 画布、824 主体、四周各留 100。圆角用超椭圆（n = 5）
- *           而不是 rx 圆角，这样曲率是连续的，跟系统自带图标的轮廓对得上。
- *           纸色沿用应用本身的底色，上浅下深一点点，再加一层柔和投影 —— 这是整张图
- *           唯一用到渐变和半透明的地方，属于平台惯例（Big Sur 之后的图标都有盘面纵深），
- *           标本身仍然是七种纯色。想要绝对平涂就把 PLATE_FLAT 打开。
+ *   plate     — macOS icon grid: 1024 canvas, 824 body, 100 margin on every side. The corners use a
+ *               superellipse (n = 5) rather than rx rounding, so curvature is continuous and matches
+ *               the outline of the system's own icons.
+ *               The paper color is the app's own background, slightly lighter at the top and darker at
+ *               the bottom, plus a soft drop shadow — the only place in the image that uses gradients
+ *               and translucency. That is platform convention (icons since Big Sur have a plate with
+ *               depth); the mark itself is still seven solid colors. For a fully flat fill, turn on
+ *               PLATE_FLAT.
  *
- *   定位 —— 标在自己的 512 画布里包围盒是 (78.3, 76.9, 355.3, 354.9)，几乎正方。
- *           把它等比放到 MARK 那么大、居中摆进盘面。clipPath 用的是 userSpaceOnUse，
- *           跟着外层 transform 一起变换，所以直接套 <g transform> 就行，不用改标的坐标。
+ *   placement — in its own 512 canvas the mark's bounding box is (78.3, 76.9, 355.3, 354.9), almost
+ *               square. It is scaled uniformly to MARK and centered on the plate. The clipPaths use
+ *               userSpaceOnUse and transform along with the outer transform, so wrapping the mark in a
+ *               <g transform> is enough; its coordinates don't need to change.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,16 +25,16 @@ import { fileURLToPath } from 'node:url';
 import { build, ROUND } from './hearth.gen.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-const PLATE = 824; //   盘面边长（1024 画布，四周各留 100）
-const MARK = 600; //    标的包围盒放到多大
-const MARK_DY = 8; //   往下挪一点点：标的视觉重心（台面）比包围盒中心低，烟占了上半
-const PLATE_FLAT = false; // true = 盘面平涂，不用渐变和投影
+const PLATE = 824; //   plate side length (1024 canvas, 100 margin on every side)
+const MARK = 600; //    target size of the mark's bounding box
+const MARK_DY = 8; //   nudge down slightly: the mark's visual center (the slab) sits below its bbox center, since the smoke takes the upper half
+const PLATE_FLAT = false; // true = flat plate fill, no gradient or drop shadow
 
 const PAPER_TOP = '#FCF9F3';
 const PAPER_BOT = '#EFE6D8';
 const ACCENT = '#A27B5C';
 
-/** 超椭圆（连续圆角）。n 越大越方；5 接近 macOS 图标的轮廓。 */
+/** Superellipse (continuous corners). Larger n is squarer; 5 is close to the macOS icon outline. */
 function squircle(cx, cy, a, n = 5, steps = 256) {
   const pts = [];
   for (let i = 0; i < steps; i++) {
@@ -48,7 +53,7 @@ const mark = build(ROUND);
 const defs = mark.slice(mark.indexOf('<defs>') + 6, mark.indexOf('</defs>')).trim();
 const body = mark.slice(mark.indexOf('</defs>') + 7, mark.lastIndexOf('</svg>')).trim();
 
-// 标的包围盒（512 空间），由 getBBox 量得，见设计文稿第十二节的验收清单
+// The mark's bounding box (512 space), measured with getBBox; see the acceptance checklist in §12 of the design doc
 const BB = { x: 78.34, y: 76.9, w: 355.32, h: 354.9 };
 const k = MARK / Math.max(BB.w, BB.h);
 const tx = (1024 - BB.w * k) / 2 - BB.x * k;
@@ -69,21 +74,21 @@ ${PLATE_FLAT ? '' : `    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
     ${defs}
   </defs>
 
-  <!-- 盘面 -->
+  <!-- Plate -->
   <path d="${BODY}" fill="${PLATE_FLAT ? PAPER_TOP : 'url(#plate)'}"${PLATE_FLAT ? '' : ' filter="url(#drop)"'}/>
 
-  <!-- 标。剪到盘面里，万一以后放大溢出也不会糊出边 -->
+  <!-- Mark. Clipped to the plate, so if it is ever enlarged and overflows, nothing bleeds past the edge -->
   <g clip-path="url(#plateclip)">
     <g transform="translate(${tx.toFixed(2)},${ty.toFixed(2)}) scale(${k.toFixed(5)})">
       ${body}
     </g>
   </g>
 
-  <!-- 一圈极淡的内描边，给盘面收个边 -->
+  <!-- A very faint inner stroke to finish the plate's edge -->
   <path d="${BODY}" fill="none" stroke="${ACCENT}" stroke-opacity="0.16" stroke-width="3"/>
 </svg>
 `;
 
 fs.mkdirSync(path.join(here, 'out'), { recursive: true });
 fs.writeFileSync(path.join(here, 'out/irori-app.svg'), svg);
-console.log('› out/irori-app.svg  （盘面 ' + PLATE + '，标 ' + MARK + '，缩放 ' + k.toFixed(3) + '）');
+console.log('› out/irori-app.svg  (plate ' + PLATE + ', mark ' + MARK + ', scale ' + k.toFixed(3) + ')');

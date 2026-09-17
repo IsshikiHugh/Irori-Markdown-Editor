@@ -11,10 +11,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The writing experience: types, pure logic, and the 57-case behaviour suite that
-  # defines "体验没有退化" (docs/acceptance/behavior-checklist.md).
+  # The writing experience: types, pure logic, and the behaviour suite that defines
+  # "the experience has not regressed" (docs/acceptance/behavior-checklist.md).
   web:
-    name: 前端 · 类型 / 单元 / 行为
+    name: Frontend · types / unit / behaviour
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -23,18 +23,18 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: 类型检查
+      - name: Typecheck
         run: npm run typecheck
-      - name: 单元测试
+      - name: Unit tests
         run: npm run test:unit
-      - name: 构建
+      - name: Build
         run: npx vite build
-      - name: 行为测试（headless Chromium）
+      - name: Behaviour tests (headless Chromium)
         run: npm run test:e2e -- --report
         env:
           # ubuntu-latest ships Chrome; harness.mjs also auto-discovers Playwright caches
           IRORI_CHROME: /usr/bin/google-chrome
-      - name: 上传行为对照报告
+      - name: Upload behaviour report
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -45,7 +45,7 @@ jobs:
   # The shell. macOS is the only platform verified by hand (ADR-0001), but the code is
   # compiled on all three from day one so the three-platform goal stays honest.
   shell:
-    name: 外壳 · ${{ matrix.os }}
+    name: Shell · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -63,13 +63,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - name: Linux 系统依赖（WebKitGTK）
+      - name: Linux system dependencies (WebKitGTK)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
-      - name: 前端产物（tauri 编译需要 dist/）
+      - name: Frontend bundle (the Tauri build needs dist/)
         run: npx vite build
       - name: rustfmt
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
@@ -78,9 +78,9 @@ jobs:
       - name: cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
-      # 真机冒烟只在 macOS 上做 —— 那是 v1 唯一承诺验收的平台（ADR-0001）。
-      # 需要一个真实的窗口会话，所以允许失败而不拖垮整条流水线。
-      - name: 真机冒烟（系统 WebView）
+      # The smoke test only runs on macOS — the one platform v1 commits to verifying (ADR-0001).
+      # It needs a real window session, so it may fail without failing the whole pipeline.
+      - name: Smoke test (system WebView)
         if: matrix.os == 'macos-latest'
         continue-on-error: true
         run: |

@@ -1,4 +1,4 @@
-/* 抽屉、快捷键层、字体设置、以及「v1 没有菜单栏」这件事。 */
+/* The drawer, the shortcut layer, font settings, and the fact that v1 has no menu bar. */
 import fs from 'node:fs';
 import path from 'node:path';
 import { MOD, ROOT, sleep } from '../harness.mjs';
@@ -6,38 +6,38 @@ import { MOD, ROOT, sleep } from '../harness.mjs';
 export const cases = [
   {
     id: 'B-60',
-    name: '右缘发丝拉出抽屉；⌘\\ 开关；Esc 与遮罩关闭',
+    name: 'The hairline on the right edge pulls out the drawer; ⌘\\ toggles it; Esc and the scrim close it',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md' });
       const hair = await page.evaluate(() => {
         const r = document.getElementById('hair').getBoundingClientRect();
         return { w: r.width, h: r.height, right: Math.round(window.innerWidth - r.right) };
       });
-      t.eq('发丝宽 3px', Math.round(hair.w), 3);
-      t.eq('发丝高 96px', Math.round(hair.h), 96);
-      t.eq('贴在右缘', hair.right, 0);
+      t.eq('hairline is 3px wide', Math.round(hair.w), 3);
+      t.eq('hairline is 96px tall', Math.round(hair.h), 96);
+      t.eq('flush with the right edge', hair.right, 0);
       await page.click('#hair');
       await sleep(350);
-      t.ok('抽屉打开', await page.evaluate(() => document.body.classList.contains('menuopen')), '');
+      t.ok('drawer opens', await page.evaluate(() => document.body.classList.contains('menuopen')), '');
       const x = await page.evaluate(() => document.querySelector('.drawer').getBoundingClientRect().right - window.innerWidth);
-      t.near('抽屉完全滑入', x, 0, 1);
+      t.near('drawer fully slides in', x, 0, 1);
       await page.click('#scrim');
       await sleep(350);
-      t.ok('遮罩点击关闭', !(await page.evaluate(() => document.body.classList.contains('menuopen'))), '');
+      t.ok('clicking the scrim closes it', !(await page.evaluate(() => document.body.classList.contains('menuopen'))), '');
       await page.click('.cm-content');
       await page.keyboard.down(MOD);
       await page.keyboard.press('\\');
       await page.keyboard.up(MOD);
       await sleep(300);
-      t.ok('⌘\\ 打开', await page.evaluate(() => document.body.classList.contains('menuopen')), '');
+      t.ok('⌘\\ opens', await page.evaluate(() => document.body.classList.contains('menuopen')), '');
       await page.keyboard.press('Escape');
       await sleep(300);
-      t.ok('Esc 关闭', !(await page.evaluate(() => document.body.classList.contains('menuopen'))), '');
+      t.ok('Esc closes', !(await page.evaluate(() => document.body.classList.contains('menuopen'))), '');
     },
   },
   {
     id: 'B-61',
-    name: '抽屉里只剩视图、字数、设置 —— 博客那些字段一个都不在',
+    name: 'The drawer holds only view, word count and settings — none of the blog fields remain',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md' });
       const gone = await page.evaluate(() => ({
@@ -47,30 +47,30 @@ export const cases = [
         list: !!document.getElementById('listwrap'),
         date: !!document.getElementById('datev'),
       }));
-      t.eq('slug 没了', gone.slug, false);
-      t.eq('tags 没了', gone.tags, false);
-      t.eq('发布按钮没了', gone.publish, false);
-      t.eq('文章列表没了', gone.list, false);
-      t.eq('date 字段没了', gone.date, false);
+      t.eq('slug is gone', gone.slug, false);
+      t.eq('tags are gone', gone.tags, false);
+      t.eq('publish button is gone', gone.publish, false);
+      t.eq('post list is gone', gone.list, false);
+      t.eq('date field is gone', gone.date, false);
       const kept = await page.evaluate(() => ({
         focus: !!document.getElementById('fseg'),
         wc: !!document.getElementById('wcv'),
         settings: !!document.getElementById('aseg'),
       }));
-      t.eq('专注模式还在', kept.focus, true);
-      t.eq('字数还在', kept.wc, true);
-      t.eq('设置在', kept.settings, true);
+      t.eq('focus mode is still there', kept.focus, true);
+      t.eq('word count is still there', kept.wc, true);
+      t.eq('settings are there', kept.settings, true);
     },
   },
   {
     id: 'B-62',
-    name: '字体来自本机、可在设置里改',
+    name: 'Fonts come from the local machine and can be changed in settings',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md' });
       const noWebfont = await page.evaluate(() =>
         [...document.querySelectorAll('link[rel=stylesheet]')].every((l) => !/fonts|jsdelivr|googleapis/.test(l.href)),
       );
-      t.ok('没有任何网络字体依赖', noWebfont, '');
+      t.ok('no web font dependencies at all', noWebfont, '');
       await page.click('#hair');
       await sleep(320);
       await page.evaluate(() => {
@@ -80,14 +80,14 @@ export const cases = [
       });
       await sleep(200);
       const applied = await page.evaluate(() => getComputedStyle(document.querySelector('.cm-content')).fontFamily);
-      t.ok('立即生效', applied.includes('Courier'), applied);
+      t.ok('takes effect immediately', applied.includes('Courier'), applied);
       const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('irori.settings') || '{}').fontFamily);
-      t.ok('已持久化', String(saved).includes('Courier'), String(saved));
+      t.ok('persisted', String(saved).includes('Courier'), String(saved));
     },
   },
   {
     id: 'B-63',
-    name: '专注模式的偏好跨会话保留',
+    name: 'Focus mode preferences persist across sessions',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md' });
       await page.click('#hair');
@@ -100,8 +100,8 @@ export const cases = [
       });
       await sleep(400);
       const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('irori.settings') || '{}').focus);
-      t.eq('开关记住', stored.on, true);
-      t.eq('上沿记住', stored.top, 35);
+      t.eq('toggle is remembered', stored.on, true);
+      t.eq('top edge is remembered', stored.top, 35);
       await page.reload({ waitUntil: 'load' });
       await page.waitForFunction(() => window.__irori && window.__irori.view);
       await sleep(300);
@@ -109,13 +109,13 @@ export const cases = [
         on: document.body.classList.contains('focusmode'),
         top: document.getElementById('ftopR').value,
       }));
-      t.eq('刷新后仍然开着', restored.on, true);
-      t.eq('上沿仍是 35', restored.top, '35');
+      t.eq('still on after reload', restored.on, true);
+      t.eq('top edge is still 35', restored.top, '35');
     },
   },
   {
     id: 'B-66',
-    name: '焦点在抽屉输入框里时，⌘S / ⌘\\ / Esc 依然有效（v1 没有菜单栏兜底）',
+    name: 'With focus in a drawer input, ⌘S / ⌘\\ / Esc still work (v1 has no menu bar to fall back on)',
     async run(t, ctx) {
       const page = await ctx.open({
         files: { '/n/a.md': '原文' },
@@ -133,23 +133,23 @@ export const cases = [
       await page.keyboard.up(MOD);
       await sleep(250);
       const saved = await page.evaluate(() => window.__irori.platform.files.get('/n/a.md')?.text);
-      t.eq('⌘S 仍然保存', saved, '原文改动');
+      t.eq('⌘S still saves', saved, '原文改动');
       await page.keyboard.press('Escape');
       await sleep(300);
-      t.ok('Esc 仍然关抽屉', !(await page.evaluate(() => document.body.classList.contains('menuopen'))), '');
+      t.ok('Esc still closes the drawer', !(await page.evaluate(() => document.body.classList.contains('menuopen'))), '');
       await page.focus('#fontin');
       await page.keyboard.down(MOD);
       await page.keyboard.press('\\');
       await page.keyboard.up(MOD);
       await sleep(300);
-      t.ok('⌘\\ 仍然开抽屉', await page.evaluate(() => document.body.classList.contains('menuopen')), '');
+      t.ok('⌘\\ still opens the drawer', await page.evaluate(() => document.body.classList.contains('menuopen')), '');
       const savedOnce = await page.evaluate(() => window.__irori.doc.dirty);
-      t.ok('没有重复触发保存（编辑器自己的快捷键与窗口层不打架）', savedOnce === false, String(savedOnce));
+      t.ok('save is not triggered twice (editor shortcuts and the window layer do not conflict)', savedOnce === false, String(savedOnce));
     },
   },
   {
     id: 'B-67',
-    name: '焦点自愈：正文丢了焦点会自动拿回来，快捷键因此永远有依托',
+    name: 'Focus self-heals: when the text loses focus it takes it back, so shortcuts always have a target',
     async run(t, ctx) {
       const page = await ctx.open({
         files: { '/n/a.md': '原文' },
@@ -158,33 +158,33 @@ export const cases = [
       });
       await page.click('.cm-content');
       await sleep(120);
-      // 正文被别的东西抢走焦点（原生窗口里就是「刚打开还没点过正文」的状态）
+      // Something else steals focus from the text (in the native window this is the "just opened, text not clicked yet" state)
       await page.evaluate(() => window.__irori.view.contentDOM.blur());
       await sleep(250);
       const back = await page.evaluate(() => document.activeElement?.className || '');
-      t.ok('焦点自己回到正文', back.includes('cm-content'), back);
+      t.ok('focus returns to the text on its own', back.includes('cm-content'), back);
 
-      // 点正文两侧的空白（属于滚动容器，但不是文字）——焦点也要落回正文
+      // Clicking the blank margins beside the text (part of the scroll container, but not text) must also put focus back on the text
       await page.evaluate(() => {
         const el = document.elementFromPoint(40, innerHeight - 200);
         el?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
       });
       await sleep(150);
       const afterClick = await page.evaluate(() => document.activeElement?.className || '');
-      t.ok('点空白后焦点在正文', afterClick.includes('cm-content'), afterClick);
+      t.ok('focus is on the text after clicking blank space', afterClick.includes('cm-content'), afterClick);
 
-      // 而在抽屉里打字时绝不能抢焦点
+      // But focus must never be stolen while typing in the drawer
       await page.click('#hair');
       await sleep(320);
       await page.focus('#fontin');
       await sleep(250);
       const inDrawer = await page.evaluate(() => document.activeElement?.id || '');
-      t.eq('抽屉输入框里的焦点不被抢走', inDrawer, 'fontin');
+      t.eq('focus in the drawer input is not stolen', inDrawer, 'fontin');
     },
   },
   {
     id: 'B-68',
-    name: '界面 chrome（抽屉 / 目录 / 顶栏）双击不划出选区，输入框照常可用',
+    name: 'Double-clicking UI chrome (drawer / TOC / top bar) does not create a selection; inputs still work',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': '# 标题\n\n正文' }, startup: '/n/a.md' });
       await page.click('#hair');
@@ -198,14 +198,14 @@ export const cases = [
         await sleep(100);
         return page.evaluate(() => (getSelection()?.toString() || '').length);
       };
-      t.eq('抽屉标题双击没选中', await dblAt('.rhead .t'), 0);
-      t.eq('设置项文字双击没选中', await dblAt('.secttitle'), 0);
-      t.eq('快捷键说明双击没选中', await dblAt('.shortcuts'), 0);
+      t.eq('double-clicking the drawer title selects nothing', await dblAt('.rhead .t'), 0);
+      t.eq('double-clicking a settings label selects nothing', await dblAt('.secttitle'), 0);
+      t.eq('double-clicking the shortcut hints selects nothing', await dblAt('.shortcuts'), 0);
       await page.click('#dclose');
       await sleep(320);
-      t.eq('顶栏文件名双击没选中', await dblAt('#filename'), 0);
+      t.eq('double-clicking the top bar file name selects nothing', await dblAt('#filename'), 0);
 
-      // 但输入框还得能用（能聚焦、能全选）
+      // But inputs must still work (focusable, select-all)
       await page.click('#hair');
       await sleep(320);
       await page.click('#fontin');
@@ -214,8 +214,8 @@ export const cases = [
         const el = document.getElementById('fontin');
         return el.selectionEnd - el.selectionStart;
       });
-      t.ok('字体输入框仍可全选', picked > 0, String(picked));
-      // 正文当然还要能选
+      t.ok('font input can still select all', picked > 0, String(picked));
+      // And the text must of course still be selectable
       await page.click('#dclose');
       await sleep(320);
       await page.evaluate(() => {
@@ -223,18 +223,18 @@ export const cases = [
         v.dispatch({ selection: { anchor: 0, head: 4 } });
         v.focus();
       });
-      t.ok('正文仍可选', await page.evaluate(() => !window.__irori.view.state.selection.main.empty), '');
+      t.ok('text is still selectable', await page.evaluate(() => !window.__irori.view.state.selection.main.empty), '');
     },
   },
   {
     id: 'B-69',
-    name: '在抽屉里点来点去，正文不会被拽回光标处',
+    name: 'Clicking around in the drawer does not yank the text back to the caret',
     async run(t, ctx) {
       const DOC = ['# 顶部', '', ...Array.from({ length: 300 }, (_, i) => `第 ${i} 行的正文内容`)].join('\n');
       const page = await ctx.open({ files: { '/n/a.md': DOC }, startup: '/n/a.md' });
       await sleep(300);
       const top = () => page.evaluate(() => Math.round(window.__irori.view.scrollDOM.scrollTop));
-      // 光标留在开头，视口滚到很远的地方
+      // Caret stays at the start, viewport scrolled far away
       await page.evaluate(() => {
         const v = window.__irori.view;
         v.dispatch({ selection: { anchor: 0 } });
@@ -242,11 +242,11 @@ export const cases = [
       });
       await sleep(200);
       const before = await top();
-      t.ok('确实滚远了', before > 1000, String(before));
+      t.ok('actually scrolled far', before > 1000, String(before));
 
       await page.click('#hair');
       await sleep(350);
-      t.eq('开抽屉不动正文', await top(), before);
+      t.eq('opening the drawer does not move the text', await top(), before);
 
       for (const sel of ['.rhead .t', '.secttitle', '.shortcuts', '#pathv']) {
         const box = await page.evaluate((s) => {
@@ -255,20 +255,20 @@ export const cases = [
         }, sel);
         await page.mouse.click(box.x, box.y);
         await sleep(200);
-        t.eq('点 ' + sel + ' 不动正文', await top(), before);
+        t.eq('clicking ' + sel + ' does not move the text', await top(), before);
       }
 
-      // 重新聚焦正文这件事本身也不许改滚动位置（WebKit 会把光标滚进视野）
+      // Refocusing the text must not change the scroll position either (WebKit scrolls the caret into view)
       await page.click('#dclose');
       await sleep(350);
       await page.evaluate(() => window.__irori.focusEditor());
       await sleep(250);
-      t.eq('聚焦正文也不动滚动位置', await top(), before);
+      t.eq('focusing the text does not move the scroll position', await top(), before);
     },
   },
   {
     id: 'B-70b',
-    name: '顶部整条是窗口拖拽区，且不属于编辑器',
+    name: 'The whole top strip is a window drag region and is not part of the editor',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': '# 标题\n\n正文' }, startup: '/n/a.md' });
       await sleep(250);
@@ -287,20 +287,20 @@ export const cases = [
           insideEditor: !!t.closest('.cm-editor'),
         };
       });
-      t.ok('整条是拖拽区', bar.drag && bar.innerDrag, '');
-      t.ok('保存指示那一块也能拖', bar.chipDrag, '');
-      t.ok('横贯窗口', bar.fullWidth, String(bar.height));
-      t.ok('有足够的抓手高度', bar.height >= 36, String(bar.height));
-      t.ok('在编辑器之外', bar.aboveEditor && !bar.insideEditor, '');
+      t.ok('whole strip is a drag region', bar.drag && bar.innerDrag, '');
+      t.ok('the save indicator area is draggable too', bar.chipDrag, '');
+      t.ok('spans the window', bar.fullWidth, String(bar.height));
+      t.ok('tall enough to grab', bar.height >= 36, String(bar.height));
+      t.ok('outside the editor', bar.aboveEditor && !bar.insideEditor, '');
     },
   },
   {
     id: 'B-70c',
-    name: '透明标题栏：顶栏横贯整个窗口都能拖（连缩略图顶端），文件名在顶部居中（对着文字列），缩略图的选框让到它下面',
+    name: 'Transparent title bar: the top bar is draggable across the whole window (including above the minimap), the file name is centered at the top (aligned with the text column), and the minimap viewport box sits below it',
     async run(t, ctx) {
-      // 拖拽靠 Tauri 的 drag.js 调 start_dragging —— 权限没开，data-tauri-drag-region 就只是个摆设
+      // Dragging relies on Tauri's drag.js calling start_dragging — without the permission, data-tauri-drag-region does nothing
       const cap = JSON.parse(fs.readFileSync(path.join(ROOT, 'src-tauri/capabilities/default.json'), 'utf8'));
-      t.ok('开了 start_dragging 权限', cap.permissions.includes('core:window:allow-start-dragging'), '');
+      t.ok('start_dragging permission is granted', cap.permissions.includes('core:window:allow-start-dragging'), '');
 
       const page = await ctx.open({ files: { '/n/a.md': '# 标题\n\n正文' }, startup: '/n/a.md' });
       await sleep(250);
@@ -315,7 +315,7 @@ export const cases = [
             right: Math.round(bar.right - innerWidth),
             top: bar.top,
             bottom: bar.bottom,
-            // 左缘留白、缩略图顶端：舞台之外的两头
+            // Left margin and minimap top: the two ends outside the stage
             leftEdge: inBar(4, 10),
             overMini: inBar(innerWidth - 40, 10),
             chipX: chip.x + chip.width / 2 - (col.x + col.width / 2),
@@ -328,8 +328,8 @@ export const cases = [
         });
 
       const web = await probe();
-      t.ok('浏览器里（没有透明标题栏）顶栏不盖缩略图', !web.overMini, '');
-      t.near('浏览器里选框留白不变', web.vpTop, 10, 1);
+      t.ok('in the browser (no transparent title bar) the top bar does not cover the minimap', !web.overMini, '');
+      t.near('in the browser the viewport box margin is unchanged', web.vpTop, 10, 1);
 
       await page.evaluate(() => {
         document.body.classList.add('overlay-titlebar');
@@ -337,33 +337,33 @@ export const cases = [
       });
       await sleep(150);
       const mac = await probe();
-      t.ok('贴顶、横贯窗口', mac.left === 0 && mac.right === 0 && mac.top === 0, `${mac.left} ${mac.right} ${mac.top}`);
-      t.near('只有红绿灯那一行高', mac.bottom, 28, 0.5);
-      t.ok('左缘留白能拖', mac.leftEdge, '');
-      t.ok('缩略图顶端能拖', mac.overMini, '');
-      t.near('文件名与文字列同一条中线', mac.chipX, 0, 1);
-      t.near('文件名与红绿灯同一水平线', mac.chipY, 14, 1.5);
-      t.ok('正文在顶栏下面', mac.editorTop >= mac.bottom, `${mac.editorTop} ≥ ${mac.bottom}`);
-      t.ok('选框在顶栏下面', mac.vpTop >= mac.bottom, `${mac.vpTop} ≥ ${mac.bottom}`);
+      t.ok('flush with the top, spans the window', mac.left === 0 && mac.right === 0 && mac.top === 0, `${mac.left} ${mac.right} ${mac.top}`);
+      t.near('only as tall as the traffic-light row', mac.bottom, 28, 0.5);
+      t.ok('left margin is draggable', mac.leftEdge, '');
+      t.ok('minimap top is draggable', mac.overMini, '');
+      t.near('file name shares the text column center line', mac.chipX, 0, 1);
+      t.near('file name is level with the traffic lights', mac.chipY, 14, 1.5);
+      t.ok('text is below the top bar', mac.editorTop >= mac.bottom, `${mac.editorTop} ≥ ${mac.bottom}`);
+      t.ok('viewport box is below the top bar', mac.vpTop >= mac.bottom, `${mac.vpTop} ≥ ${mac.bottom}`);
 
-      // 长文件名：截断，不许伸到红绿灯或缩略图上
+      // Long file name: truncated, must not reach the traffic lights or the minimap
       await page.evaluate(() => (document.getElementById('filename').textContent = '很长的文件名'.repeat(40)));
       const long = await probe();
-      t.ok('长文件名不碰红绿灯与缩略图', long.chipLeft >= 80 && long.chipRight >= 113, `${long.chipLeft} / ${long.chipRight}`);
+      t.ok('long file name does not touch the traffic lights or the minimap', long.chipLeft >= 80 && long.chipRight >= 113, `${long.chipLeft} / ${long.chipRight}`);
 
-      // 抽屉开着时让给抽屉：✕ 要点得到
+      // When the drawer is open the top bar yields to it: ✕ must be clickable
       await page.click('#hair');
       await sleep(350);
       const x = await page.evaluate(() => {
         const r = document.getElementById('dclose').getBoundingClientRect();
         return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.id;
       });
-      t.eq('抽屉的 ✕ 不被顶栏挡住', x, 'dclose');
+      t.eq('drawer ✕ is not covered by the top bar', x, 'dclose');
     },
   },
   {
     id: 'B-65b',
-    name: '一屏放得下时页面不能滚、缩略图拖不动；放不下才留出「滚过末尾」的空白',
+    name: 'When the doc fits on one screen the page cannot scroll and the minimap cannot be dragged; only overflowing docs get scroll-past-end space',
     async run(t, ctx) {
       const range = (page) =>
         page.evaluate(() => {
@@ -371,16 +371,16 @@ export const cases = [
           return { canScroll: s.scrollHeight - s.clientHeight, noscroll: document.getElementById('mini').classList.contains('noscroll') };
         });
       for (const [label, doc] of [
-        ['空文档', ''],
-        ['三行', '# 标题\n\n一行正文'],
-        ['一屏放得下的十行', Array.from({ length: 10 }, (_, i) => `第 ${i} 行`).join('\n')],
+        ['empty doc', ''],
+        ['three lines', '# 标题\n\n一行正文'],
+        ['ten lines that fit on one screen', Array.from({ length: 10 }, (_, i) => `第 ${i} 行`).join('\n')],
       ]) {
         const page = await ctx.open({ files: { '/n/a.md': doc }, startup: '/n/a.md', viewport: { width: 1200, height: 780 } });
         await sleep(350);
         const r = await range(page);
-        t.ok(`${label}：不能滚`, r.canScroll <= 1, String(r.canScroll));
-        t.ok(`${label}：缩略图标为不可拖`, r.noscroll, '');
-        // 拖选框也拖不动
+        t.ok(`${label}: cannot scroll`, r.canScroll <= 1, String(r.canScroll));
+        t.ok(`${label}: minimap marked as not draggable`, r.noscroll, '');
+        // Dragging the viewport box does nothing either
         const box = await page.evaluate(() => {
           const b = document.getElementById('vp').getBoundingClientRect();
           return { x: b.x + b.width / 2, y: b.y + Math.min(20, b.height / 2) };
@@ -390,17 +390,17 @@ export const cases = [
         await page.mouse.move(box.x, box.y + 200, { steps: 5 });
         await page.mouse.up();
         await sleep(200);
-        t.eq(`${label}：拖完仍在顶部`, await page.evaluate(() => Math.round(window.__irori.view.scrollDOM.scrollTop)), 0);
+        t.eq(`${label}: still at the top after dragging`, await page.evaluate(() => Math.round(window.__irori.view.scrollDOM.scrollTop)), 0);
         await page.close();
       }
 
-      // 长文：照旧留出空白，最后一行能滚到很靠上的位置
+      // Long doc: blank space is kept as before, the last line can scroll far up
       const long = Array.from({ length: 80 }, (_, i) => `第 ${i} 行`).join('\n');
       const page = await ctx.open({ files: { '/n/b.md': long }, startup: '/n/b.md', viewport: { width: 1200, height: 780 } });
       await sleep(350);
       const r = await range(page);
-      t.ok('长文可以滚', r.canScroll > 500, String(r.canScroll));
-      t.ok('长文的缩略图可拖', !r.noscroll, '');
+      t.ok('long doc can scroll', r.canScroll > 500, String(r.canScroll));
+      t.ok('long doc minimap is draggable', !r.noscroll, '');
       const lastTop = await page.evaluate(async () => {
         const v = window.__irori.view;
         v.scrollDOM.scrollTop = v.scrollDOM.scrollHeight;
@@ -408,9 +408,9 @@ export const cases = [
         const line = v.state.doc.line(v.state.doc.lines);
         return v.documentTop + v.lineBlockAt(line.from).top - v.scrollDOM.getBoundingClientRect().top;
       });
-      t.ok('最后一行能滚到视口上半部', lastTop < 780 / 2, String(Math.round(lastTop)));
+      t.ok('last line can scroll into the top half of the viewport', lastTop < 780 / 2, String(Math.round(lastTop)));
 
-      // 短文打字打到超过一屏：滚动范围随之出现；删回去：又消失
+      // Typing a short doc past one screen: scroll range appears; deleting back: it disappears again
       const grow = await ctx.open({ files: { '/n/c.md': '开头' }, startup: '/n/c.md', viewport: { width: 1200, height: 780 } });
       await sleep(300);
       await grow.evaluate(() => {
@@ -418,34 +418,34 @@ export const cases = [
         v.dispatch({ changes: { from: v.state.doc.length, insert: '\n' + Array.from({ length: 40 }, (_, i) => `新 ${i}`).join('\n') } });
       });
       await sleep(350);
-      t.ok('写长了之后可以滚', (await range(grow)).canScroll > 500, '');
+      t.ok('can scroll once it grows long', (await range(grow)).canScroll > 500, '');
       await grow.evaluate(() => {
         const v = window.__irori.view;
         v.dispatch({ changes: { from: 2, to: v.state.doc.length, insert: '' } });
       });
       await sleep(350);
-      t.ok('删回一屏以内又不能滚', (await range(grow)).canScroll <= 1, String((await range(grow)).canScroll));
+      t.ok('cannot scroll again after deleting back within one screen', (await range(grow)).canScroll <= 1, String((await range(grow)).canScroll));
 
-      // 专注模式：短文整个在聚焦带里，也不需要滚
+      // Focus mode: a short doc sits entirely inside the focus band, so no scrolling is needed either
       await grow.click('#hair');
       await sleep(320);
       await grow.click('#fseg');
       await sleep(500);
-      t.ok('专注模式下短文也不能滚', (await range(grow)).canScroll <= 1, String((await range(grow)).canScroll));
+      t.ok('short doc cannot scroll in focus mode either', (await range(grow)).canScroll <= 1, String((await range(grow)).canScroll));
     },
   },
   {
     id: 'B-64',
-    name: 'v1 不提供菜单栏，快捷键是唯一入口（已记录的取舍）',
+    name: 'v1 has no menu bar; shortcuts are the only entry point (a documented trade-off)',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md' });
       const hints = await page.evaluate(() => document.querySelector('.shortcuts').textContent);
-      t.ok('抽屉里列出了快捷键', hints.includes('⌘S') && hints.includes('⌘O') && hints.includes('⌘F'), hints);
+      t.ok('drawer lists the shortcuts', hints.includes('⌘S') && hints.includes('⌘O') && hints.includes('⌘F'), hints);
     },
   },
   {
     id: 'B-65',
-    name: '窗口滚动条不可见（缩略图的选框就是滚动指示）',
+    name: 'Window scrollbars are invisible (the minimap viewport box is the scroll indicator)',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': Array.from({ length: 200 }, (_, i) => '第 ' + i + ' 行').join('\n') }, startup: '/n/a.md' });
       await sleep(200);
@@ -453,8 +453,8 @@ export const cases = [
         const s = document.querySelector('.cm-scroller');
         return { docOverflow: getComputedStyle(document.body).overflow, gutter: s.offsetWidth - s.clientWidth };
       });
-      t.eq('页面本身不滚动', bars.docOverflow, 'hidden');
-      t.eq('编辑器滚动条零宽', bars.gutter, 0);
+      t.eq('page itself does not scroll', bars.docOverflow, 'hidden');
+      t.eq('editor scrollbar has zero width', bars.gutter, 0);
     },
   },
 ];

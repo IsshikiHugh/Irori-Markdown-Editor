@@ -11,11 +11,13 @@
   <aside class="post-toc" id="ptoc"><div class="title"><span>目录</span></div><div class="toc-inner"><ul class="toc" id="toc"></ul></div></aside>
 
   <div class="stage" id="stage">
-    <!-- 顶部整条都是窗口拖拽区（macOS 上标题栏是透明的，红绿灯浮在这上面）。
-         它在编辑器之外：正文滚动、专注模式的渐隐都盖不到它。 -->
+    <!-- The whole top strip is the window drag region (on macOS the title bar is transparent and
+         the traffic lights float over it). It sits outside the editor: neither scrolling text nor
+         focus mode's fade can cover it. -->
     <div class="topline" id="topline" data-tauri-drag-region>
       <div class="topline-inner" data-tauri-drag-region>
-        <!-- 文件名前的那颗点就是保存状态：红 = unsaved，绿 = saved（hover 有英文提示） -->
+        <!-- The dot before the filename is the save state: red = unsaved, green = saved
+             (hovering shows an English tooltip) -->
         <span class="st" id="filechip" data-state="saved" title="saved" data-tauri-drag-region><span class="d" data-tauri-drag-region></span><span id="filename" data-tauri-drag-region>未命名</span></span>
       </div>
     </div>

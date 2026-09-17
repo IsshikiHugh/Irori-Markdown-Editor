@@ -18,8 +18,8 @@ import { installFocusGuard } from './app/focus-guard';
 import { installShortcuts } from './app/shortcuts';
 import { runSmoke } from './dev/smoke';
 
-/* getElementById 的返回类型写死在 HTMLElement 上，取 SVG 节点时每处都要双重强转。
-   这里把强转收进来一次，调用方写 $<SVGPathElement>('curvepath') 即可。 */
+/* getElementById's return type is fixed to HTMLElement, so every SVG lookup would need a double
+   cast. The cast is folded in here once; callers just write $<SVGPathElement>('curvepath'). */
 const $ = <T extends Element = HTMLElement>(id: string) => document.getElementById(id) as unknown as T;
 
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -114,15 +114,16 @@ async function boot() {
     () => ({ autosave: settings.value.autosave, autosaveDelay: settings.value.autosaveDelay }),
   );
 
-  /* 图片 src → <img> 能加载的地址。正文和缩略图是两个渲染器，但解析规则必须是同一条：
-     网络/内联地址原样放行，其余按当前文档的位置解析成绝对路径再交给宿主。 */
+  /* Image src → a URL an <img> can load. The body and the minimap are two renderers, but the
+     resolution rule must be one and the same: network/inline URLs pass through as-is; anything
+     else is resolved to an absolute path against the current document, then handed to the host. */
   const resolveAsset = (src: string): string | null => {
     if (/^(https?:|data:)/i.test(src)) return src;
     const abs = doc.path ? resolveAgainst(doc.path, src) : null;
     return abs ? platform.assetUrl(abs) : null;
   };
 
-  /* 专注模式下光标要一直待在聚焦带里；每帧最多跟一次 */
+  /* in focus mode the caret must stay inside the focus band; follow it at most once per frame */
   let bandFrame = 0;
   const followBand = () => {
     if (bandFrame) return;
@@ -164,19 +165,21 @@ async function boot() {
     resolveAsset,
   });
   applyFont(view, settings.value.fontFamily);
-  // 渐隐层放进编辑器里：这样它盖得住正文，却盖不住光标（CodeMirror 的光标层 z-index 150），
-  // 也盖不住编辑器之外的顶部标题栏
+  // The fade layer goes inside the editor: that way it covers the text but not the caret
+  // (CodeMirror's cursor layer is z-index 150), nor the top title bar outside the editor
   view.dom.appendChild($('fade'));
-  // macOS 下标题栏是透明的（tauri.conf.json: titleBarStyle=Overlay），正文要给红绿灯让位
+  // On macOS the title bar is transparent (tauri.conf.json: titleBarStyle=Overlay), so the text
+  // has to make room for the traffic lights
   if (platform.kind === 'tauri' && /Mac/.test(navigator.userAgent)) document.body.classList.add('overlay-titlebar');
 
   /* ---------- features ---------- */
-  // 一个滑动器，三处共用（目录点击 / 缩略图点击 / 专注模式拉回光标），
-  // 这样它们不会各滚各的
+  // One glide, shared by three callers (TOC click / minimap click / focus mode pulling the caret
+  // back), so they never scroll independently of each other
   const glide = createGlide(view);
 
-  // 缩略图与专注模式互相要用到对方（选框要知道聚焦带、聚焦带变了要重排缩略图），
-  // 用两个引用把这层循环解开，免得谁先谁后都踩到「还没初始化」。
+  // The minimap and focus mode each need the other (the viewport box needs the focus band; a band
+  // change must re-lay out the minimap). Two refs break the cycle, so whichever initializes first
+  // never trips over "not initialized yet".
   let focusRef: ReturnType<typeof createFocus> | null = null;
   let minimapRef: Minimap | null = null;
 
@@ -188,7 +191,8 @@ async function boot() {
     resolveAsset,
     glide,
     () => {
-      // 专注模式下真正看得见的只有聚焦带，选框就该标那一段（带外是渐隐的）
+      // in focus mode only the focus band is really visible, so that is the span the viewport box
+      // should mark (everything outside the band is faded)
       const s = view.scrollDOM;
       if (!focusRef?.isOn()) return { offset: 0, height: s.clientHeight };
       const rect = s.getBoundingClientRect();
@@ -217,8 +221,9 @@ async function boot() {
     settings.value.focus,
     (p) => settings.patch({ focus: p }),
     glide,
-    // 内边距 / 聚焦带一变：CodeMirror 要等自己的测量周期才知道新的 documentPadding，
-    // 缩略图必须在那之后再排，否则它还按旧的留白画、选框也还标着旧的那一段。
+    // Padding / focus band changed: CodeMirror only learns the new documentPadding in its own
+    // measure cycle, so the minimap must lay out after that — otherwise it still draws with the
+    // old margins and the viewport box still marks the old span.
     () => {
       const relayout = () => minimapRef?.invalidate();
       view.requestMeasure({ read: () => 0, write: relayout });
@@ -253,7 +258,7 @@ async function boot() {
     minimap.invalidate();
   }
 
-  // 焦点与滚轮的守卫（对抗宿主默认行为，见 src/app/focus-guard.ts）
+  // focus and wheel guards (fighting host default behavior; see src/app/focus-guard.ts)
   const { focusEditor } = installFocusGuard(view, glide);
 
   view.scrollDOM.addEventListener('scroll', () => {
@@ -266,13 +271,15 @@ async function boot() {
     minimap.layout();
     toc.spy();
   });
-  // 专注模式下光标要一直待在聚焦带里。用「每次更新跟一下」而不是「按键时取消动画」——
-  // 后者会让「回车后接着打字」把正在进行的滑动打断，光标就被留在带外了。
+  // In focus mode the caret must always stay inside the focus band. We follow it on every update
+  // rather than cancelling the animation on keypress — the latter lets "Enter, then keep typing"
+  // interrupt a glide in progress, leaving the caret stranded outside the band.
   view.dom.addEventListener('mouseup', () => focus.keepCaretInBand());
 
   /* ---------- drawer + settings ---------- */
-  // 抽屉里的控件不抢焦点：焦点一旦离开正文，CodeMirror 就会把光标藏起来 ——
-  // 而「开关一下专注模式，光标就没了」正是这么来的。输入框除外，它们本来就要焦点。
+  // Drawer controls don't take focus: once focus leaves the text, CodeMirror hides the caret —
+  // which is exactly how "toggle focus mode and the caret is gone" happened. Inputs are exempt;
+  // they need focus anyway.
   for (const el of [document.querySelector('.drawer') as HTMLElement, $('hair'), $('scrim')]) {
     el?.addEventListener('mousedown', (e) => {
       if ((e.target as HTMLElement).closest('input,textarea,select')) return;
@@ -311,7 +318,7 @@ async function boot() {
   };
   reflectSettings();
 
-  // 窗口级快捷键（v1 没有菜单栏，见 src/app/shortcuts.ts）
+  // window-level shortcuts (v1 has no menu bar; see src/app/shortcuts.ts)
   installShortcuts({ platform, doc, toast, setBuffer });
 
   platform.onCloseRequested(() => doc.requestClose());
@@ -337,7 +344,7 @@ async function boot() {
       toast('打开失败：' + (err as Error).message);
     }
   } else {
-    // a 白纸: in memory only until the first ⌘S, by design
+    // a blank page: in memory only until the first ⌘S, by design
     doc.setText('');
   }
   updateWordCount();
@@ -345,8 +352,9 @@ async function boot() {
   minimap.layout();
   view.focus();
 
-  // 冒烟探针（scripts/smoke.sh）：在真实系统 WebView 里证明整条链路通了。
-  // 实现在 src/dev/smoke.ts —— 它是生产包的一部分，理由见那个文件的开头。
+  // smoke probe (scripts/smoke.sh): proves the whole chain works inside the real system WebView.
+  // Implemented in src/dev/smoke.ts — it is part of the production bundle; see the top of that
+  // file for why.
   await runSmoke({
     view,
     platform,

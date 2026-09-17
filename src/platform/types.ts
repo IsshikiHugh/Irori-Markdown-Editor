@@ -63,7 +63,8 @@ export interface Platform {
   assetUrl(path: string): string;
 
   newWindow(): Promise<void>;
-  /** ⌘W —— 走和点红灯一样的关闭流程（会触发未保存确认） */
+  /** ⌘W — goes through the same close flow as clicking the red traffic light (triggers the
+      unsaved-changes confirmation) */
   closeWindow(): Promise<void>;
   setTitle(title: string): Promise<void>;
   /** ask the host to confirm before the window closes while there are unsaved edits */

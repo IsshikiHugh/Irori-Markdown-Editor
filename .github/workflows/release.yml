@@ -1,34 +1,39 @@
 name: Release
 
-# 发版：推一个 `v*` tag，四个平台打包、挂到 GitHub Release 上并直接发布。
+# Releasing: push a `v*` tag; all four platforms are built, attached to a GitHub Release, and the
+# release is published.
 #
-#   1. 改版本号（package.json、src-tauri/tauri.conf.json、src-tauri/Cargo.toml 三处一致），
-#      在 CHANGELOG.md 里写好 `## vX.Y.Z — 日期` 这一节，提交并推到 main
+#   1. Bump the version (package.json, src-tauri/tauri.conf.json and src-tauri/Cargo.toml must
+#      agree) and add a `## vX.Y.Z — date` section to CHANGELOG.md; commit and push to main
 #   2. git tag vX.Y.Z && git push origin vX.Y.Z
 #
-# 流程：prepare 核对 tag 与版本号、从 CHANGELOG 取这一版的说明、建一个草稿 release →
-# 四个平台并行打包、把安装包传上去 → 全部成功才把草稿发布出去。
-# 任何一个平台失败，release 就停在草稿，不会发出一个缺平台的版本；修好后重跑失败的任务即可。
-# tag 里带 `-`（如 v0.2.0-beta.1）的发成 pre-release。
+# Flow: `prepare` checks the tag against the version, takes this version's notes from CHANGELOG.md
+# and creates a draft release → the four platforms build in parallel and upload their installers →
+# the draft is published only if every build succeeded. If any platform fails the release stays a
+# draft instead of going out with a platform missing; fix it and re-run the failed jobs.
+# Tags containing `-` (e.g. v0.2.0-beta.1) are published as pre-releases.
 #
-# 手动运行（Actions 页 → Release → Run workflow）不碰 release，只打包：安装包在那次运行页面底部的
-# Artifacts 里（Windows 是 nsis/*-setup.exe 与 msi/*.msi，二选一装即可），保留 90 天。
+# A manual run (Actions → Release → Run workflow) never touches releases and only builds: the
+# installers are in the Artifacts section at the bottom of that run's page (Windows ships
+# nsis/*-setup.exe and msi/*.msi — either one works), kept for 90 days.
 #
-# 注意：只有 macOS 做过人工验收（ADR-0001）。Windows / Linux 的产物是「能编译、能打包」，
-# 不是「已验证」——在有人真正跑过验收清单之前，不要把它们当成已支持的平台。
+# Note: only macOS has been verified by hand (ADR-0001). The Windows / Linux builds are "compiles
+# and packages", not "verified" — don't treat them as supported platforms until someone has run
+# the acceptance checklist on them.
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
 
-# 要建 release、传安装包；新仓库默认给 GITHUB_TOKEN 的是只读权限，不写这行会 403
+# Needed to create releases and upload assets; new repositories give GITHUB_TOKEN read-only
+# access by default, which fails with a 403
 permissions:
   contents: write
 
 jobs:
   prepare:
-    name: 准备 release
+    name: Prepare release
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     outputs:
@@ -36,8 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # 对不上的话安装包文件名里的版本号会和 tag 不一致 —— 在这里就停，不白跑四个平台
-      - name: tag 与版本号一致
+      # A mismatch would put a different version in the installer file names than in the tag —
+      # stop here rather than building four platforms for nothing
+      - name: Check the tag matches the version
         run: |
           want="${GITHUB_REF_NAME#v}"
           npm_ver=$(node -p "require('./package.json').version")
@@ -45,27 +51,26 @@ jobs:
           cargo_ver=$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)
           echo "tag=$want package.json=$npm_ver tauri.conf.json=$conf_ver Cargo.toml=$cargo_ver"
           if [[ "$npm_ver" != "$want" || "$conf_ver" != "$want" || "$cargo_ver" != "$want" ]]; then
-            echo "::error::tag $GITHUB_REF_NAME 与版本号不一致，先把三处版本号改成 $want 再打 tag"
+            echo "::error::tag $GITHUB_REF_NAME does not match the version; set all three versions to $want before tagging"
             exit 1
           fi
 
-      - name: 从 CHANGELOG 取这一版的说明
+      - name: Take this version's notes from CHANGELOG
         run: |
-          # 取 `## vX.Y.Z` 开头的那一节，到下一个 `## v` 为止
+          # The section starting at `## vX.Y.Z`, up to the next `## v`
           awk -v head="## $GITHUB_REF_NAME" '
             index($0, head) == 1 && (length($0) == length(head) || substr($0, length(head) + 1, 1) == " ") { on = 1; next }
             on && /^## v/ { exit }
             on { print }
           ' CHANGELOG.md > notes.md
           if [[ -z "$(tr -d '[:space:]' < notes.md)" ]]; then
-            echo "::warning::CHANGELOG.md 里没有 $GITHUB_REF_NAME 这一节，release 说明留空"
-            echo "（CHANGELOG.md 里没有这一版的记录）" > notes.md
+            echo "::warning::CHANGELOG.md has no section for $GITHUB_REF_NAME; release notes left empty"
+            echo "No changelog entry for this version." > notes.md
           fi
-          printf '\n---\n\n只有 macOS 经过人工验收；Windows / Linux 的安装包能编译、能打包，但未经验证。\n' >> notes.md
           cat notes.md
 
-      # 重跑时复用已有的那个草稿，不会建出第二个
-      - name: 建草稿 release
+      # A re-run reuses the existing draft instead of creating a second one
+      - name: Create draft release
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -86,7 +91,8 @@ jobs:
   build:
     name: ${{ matrix.label }}
     needs: prepare
-    # 手动运行时 prepare 被跳过，也要照常打包；打 tag 时 prepare 失败就不打
+    # On a manual run `prepare` is skipped and the build must still happen; on a tag, a failed
+    # `prepare` stops it
     if: ${{ !cancelled() && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -121,21 +127,21 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - name: Linux 系统依赖（WebKitGTK）
+      - name: Linux system dependencies (WebKitGTK)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
-      # releaseId 为空（手动运行）时只打包、不上传
-      - name: 打包
+      # With an empty releaseId (manual run) this only builds, nothing is uploaded
+      - name: Build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: ${{ matrix.args }}
           releaseId: ${{ needs.prepare.outputs.release_id }}
-      - name: 上传安装包
+      - name: Upload installers
         if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v7
         with:
@@ -145,12 +151,12 @@ jobs:
           if-no-files-found: warn
 
   publish:
-    name: 发布 release
+    name: Publish release
     needs: [prepare, build]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
-      - name: 草稿 → 正式发布
+      - name: Draft → published
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

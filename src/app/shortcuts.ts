@@ -1,6 +1,6 @@
-/* 窗口级快捷键。v1 没有菜单栏，这些键必须在焦点**不在**正文里时也生效 ——
-   在抽屉的字体框里打字，⌘S 和 Esc 不能因此失灵。编辑器自己的 keymap already 处理过的
-   按键到这里时带着 defaultPrevented，所以不会触发两次。 */
+/* Window-level shortcuts. v1 has no menu bar, so these keys must work even when focus is **not**
+   in the text — typing in the drawer's font field must not make ⌘S or Esc stop working. Keys the
+   editor's own keymap already handled arrive here as defaultPrevented, so they never fire twice. */
 import type { Platform } from '../platform/types';
 import type { DocumentSession } from './document';
 
@@ -8,7 +8,7 @@ export type ShortcutDeps = {
   platform: Platform;
   doc: DocumentSession;
   toast: (msg: string) => void;
-  /** 打开新文件之后把内容放进缓冲区 */
+  /** puts the content into the buffer after a new file is opened */
   setBuffer: (text: string) => void;
 };
 

@@ -47,7 +47,8 @@ export const hoverHighlight: Extension = [
   hoverLine,
   EditorView.domEventHandlers({
     mousemove(e, view) {
-      // 只有真的悬在某一行的文字盒子上才高亮 —— 滚动区比文字列宽，掠过两侧空白不该点亮行
+      // highlight only when actually hovering a line's text box — the scroller is wider than the
+      // text column, and passing over the margins on either side should not light up a line
       const row = (e.target as HTMLElement | null)?.closest?.('.cm-line') ?? null;
       const pos = row ? view.posAtCoords({ x: e.clientX, y: e.clientY }) : null;
       const line = pos == null ? null : view.state.doc.lineAt(pos).from;
@@ -194,8 +195,9 @@ function build(view: EditorView): DecorationSet {
   // exactly like the blog editor's updateActiveLine()
   const anchorLine = doc.lineAt(state.selection.main.head).number;
 
-  // 空文档的 visibleRanges 是空数组（viewport 是 0..0），那样第一行拿不到任何装饰：
-  // 字号回落到 16px/1.4，光标又矮又靠上，打下第一个字时才「啪」地跳到正确的行高。
+  // An empty document's visibleRanges is an empty array (the viewport is 0..0), so the first line
+  // would get no decoration at all: the font falls back to 16px/1.4, the caret is short and sits
+  // high, and only "snaps" to the right line height when the first character is typed.
   const ranges = view.visibleRanges.length
     ? view.visibleRanges
     : [{ from: view.viewport.from, to: view.viewport.to }];

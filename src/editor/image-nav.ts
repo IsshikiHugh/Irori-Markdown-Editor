@@ -2,9 +2,9 @@
 
    A picture is a block widget that replaces its line, and CodeMirror's default vertical
    motion treats such a block as one opaque thing to jump past. The blog editor made a
-   point of the opposite behaviour — "方向键会走进图片行" — because stepping in is how you
-   edit the `![](…)` source. So these four commands run before the default keymap and
-   place the caret inside the neighbouring image line when there is one. */
+   point of the opposite behaviour — "arrow keys walk into image lines" — because stepping
+   in is how you edit the `![](…)` source. So these four commands run before the default
+   keymap and place the caret inside the neighbouring image line when there is one. */
 
 import type { KeyBinding } from '@codemirror/view';
 import { EditorView } from '@codemirror/view';

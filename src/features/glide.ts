@@ -1,67 +1,79 @@
-/* 所有「跳转式」滚动都走这里：目录点击、缩略图点击、专注模式把光标拉回聚焦带。
+/* Every "jump" scroll goes through here: TOC clicks, minimap clicks, and focus mode pulling
+   the caret back into the band.
 
-   三条要求决定了这里的曲线：
+   Three requirements shape the curve:
 
-   1. **时长随跨越的行数递进**，而不是浏览器 `behavior:'smooth'` 那种不分远近的固定节奏。
-      一页以内：1 行 250ms · 2 行 350ms · 4 行 450ms · 一页封顶 500ms。
+   1. **Duration grows with the number of lines crossed**, instead of the fixed, distance-blind
+      pace of the browser's `behavior:'smooth'`.
+      Within a page: 1 line 250ms · 2 lines 350ms · 4 lines 450ms · capped at 500ms for a page.
 
-   2. **收尾永远长一个样**。最后 250ms 固定走完 1.2 行、固定的减速曲线 —— 也就是说
-      「距结束还有 t 毫秒」时的速度，跨 2 行和跨 40 行完全相同。不论跳多远，眼睛都能在
-      最后那一段看清它是往哪个方向、以什么节奏停下来的。
+   2. **The ending always looks the same.** The last 250ms always covers 1.2 lines on the same
+      deceleration curve — i.e. the speed "t ms before the end" is identical for a 2-line and
+      a 40-line jump. However far the jump, the eye can read, in that final stretch, which way
+      it is going and the rhythm at which it comes to rest.
 
-   3. **起步也要看得见**。远距离时另有一段与收尾对称的起步段（250ms / 1.2 行 / 二次 ease-in），
-      否则中段一快，整段看起来就像「瞬移了一下再慢慢停住」。
+   3. **The start must be visible too.** Long jumps get a start phase mirroring the ending
+      (250ms / 1.2 lines / quadratic ease-in); otherwise, once the middle speeds up, the whole
+      thing looks like "teleported, then slowly settled".
 
-   于是：
-       近距离（一页以内）两段 —— 从静止加速的三次 Hermite + 固定收尾；
-       远距离三段 —— 固定起步 + 中段（三次 Hermite，两端速度都等于交接速度）+ 固定收尾。
-   所有交接点速度连续，不会有一脚急刹。
+   Hence:
+       short (within a page): two phases — a cubic Hermite accelerating from rest + the fixed ending;
+       long: three phases — fixed start + middle (cubic Hermite, speed at both ends equal to the
+       join speed) + fixed ending.
+   Speed is continuous at every join, so there is never a sudden brake.
 
-   目标点每一帧重新解析：CodeMirror 对没渲染过的区域是估算行高的，滚过去的路上会被实测值
-   修正 —— 目标写死的话，动画会在中途被那次修正顶到终点，落点还是错的。 */
+   The target is re-resolved every frame: CodeMirror estimates line heights for regions it has
+   not rendered and corrects them with measured values on the way there — with a fixed target,
+   that correction would shove the animation to its end midway and it would still land wrong. */
 
 import type { EditorView } from '@codemirror/view';
 
 export const GLIDE_MIN = 250;
-/** 一页（约 10 行）以内的上限 */
+/** cap for jumps within a page (~10 lines) */
 export const GLIDE_MAX = 500;
-/** 再远也不会超过这个 —— 超长距离硬压在 500ms 里，正文是从眼前「糊」过去的，谈不上丝滑 */
+/** never longer than this — squeezing a very long jump into 500ms smears the text past the eye,
+    which is anything but smooth */
 export const GLIDE_MAX_FAR = 1400;
-/** 起步段：和收尾段对称的固定一段（远距离才用得上） */
+/** start phase: a fixed stretch mirroring the ending (only used for long jumps) */
 export const HEAD_MS = 250;
-/** 收尾段的时长：固定不变，这是「渐出永远一致」的前提 */
+/** duration of the ending: fixed, which is what keeps "the ease-out is always the same" true */
 export const TAIL_MS = 250;
-/** 收尾段走过的距离，按行算 */
+/** distance covered by the ending, in lines */
 export const TAIL_LINES = 1.2;
 
 export function glideDuration(lines: number): number {
   const l = Math.max(1, lines);
-  // 一页以内：1 行 250ms、2 行 350ms、4 行 450ms，到 10 行封顶 500ms（用户定的节奏，原样保留）
+  // within a page: 1 line 250ms, 2 lines 350ms, 4 lines 450ms, capped at 500ms by 10 lines
+  // (the pace the user chose — keep it as is)
   if (l <= 10) return Math.min(GLIDE_MAX, GLIDE_MIN + 100 * Math.log2(l));
-  // 更远：给足时间，两头才容得下看得见的起步与收尾段（否则中间那段就是「瞬移」）
+  // farther: allow enough time for a visible start and ending at both ends
+  // (otherwise the middle is a "teleport")
   return Math.min(GLIDE_MAX_FAR, GLIDE_MAX * Math.sqrt(l / 10));
 }
 
 export type GlideProfile = {
-  /** 总时长 ms */
+  /** total duration, ms */
   total: number;
-  /** 头段时长 ms（可能为 0：短跳只有收尾段） */
+  /** duration of the head, ms (may be 0: a short jump is only the ending) */
   headMs: number;
-  /** 收尾段走过的距离 px */
+  /** distance covered by the ending, px */
   tailDistance: number;
-  /** 交接处的速度 px/ms */
+  /** speed at the join, px/ms */
   joinSpeed: number;
-  /** 已过 t 毫秒时走过的距离 px */
+  /** distance covered after t ms, px */
   at: (t: number) => number;
 };
 
-/** 纯函数，便于直接测：给定距离与行高，算出整条运动曲线。
+/** Pure function, so it can be tested directly: given a distance and line height, compute the
+    whole motion curve.
 
-    远距离（时间放得下两头的固定段时）是三段：
-        起步 250ms / 1.2 行（二次 ease-in）→ 中段（三次 Hermite，两端速度都等于交接速度）
-        → 收尾 250ms / 1.2 行（二次 ease-out）
-    起步与收尾对称、且与跳多远无关，所以两头都看得清方向；中段才是「快」的部分。
-    近距离（一页以内）时间不够摆三段，退回「从静止加速 + 固定收尾」的两段式，节奏与之前完全一致。 */
+    A long jump (when there is time for the fixed phases at both ends) has three phases:
+        start 250ms / 1.2 lines (quadratic ease-in) → middle (cubic Hermite, speed at both ends
+        equal to the join speed) → ending 250ms / 1.2 lines (quadratic ease-out)
+    Start and ending are symmetric and independent of the distance, so the direction reads
+    clearly at both ends; only the middle is the "fast" part.
+    A short jump (within a page) has no room for three phases and falls back to the two-phase
+    "accelerate from rest + fixed ending", with exactly the same pace as before. */
 export function glideProfile(distance: number, lineHeight: number): GlideProfile {
   const S = Math.abs(distance);
   const total = glideDuration(S / lineHeight);
@@ -93,8 +105,9 @@ export function glideProfile(distance: number, lineHeight: number): GlideProfile
 
   const headMs = Math.max(0, total - TAIL_MS);
   let D = Math.min(S, TAIL_LINES * lineHeight);
-  // 头段必须单调（不能先倒退再前进）。三次 Hermite 的末速度斜率 m = v_join·headMs/H，
-  // m > 3 就会出现倒退 —— 真遇上就把收尾段的距离压一压。
+  // The head must be monotonic (no moving backwards before going forwards). The cubic Hermite's
+  // end-speed slope is m = v_join·headMs/H, and m > 3 backtracks — if that happens, shrink the
+  // ending's distance.
   if (headMs > 0 && S - D > 0) {
     const m = ((2 * D) / TAIL_MS) * (headMs / (S - D));
     if (m > 3) D = (3 * TAIL_MS * S) / (2 * headMs + 3 * TAIL_MS);
@@ -119,14 +132,15 @@ export function glideProfile(distance: number, lineHeight: number): GlideProfile
   return { total, headMs, tailDistance: D, joinSpeed, at };
 }
 
-/** 上一次滑动的实际数据 —— 让「收尾恒定」这条可以被直接断言，而不是靠采样去猜。 */
+/** Actual data from the last glide — lets "the ending is constant" be asserted directly instead
+    of guessed from samples. */
 export type GlideRun = {
   from: number;
   to: number;
   total: number;
   headMs: number;
   tailMs: number;
-  /** 收尾段的起点与终点（两者之差就是收尾走过的距离） */
+  /** start and end of the ending (their difference is the distance the ending covered) */
   tailFrom: number;
   tailTo: number;
 };
@@ -173,9 +187,10 @@ export function createGlide(view: EditorView): Glide {
       const t = now - start;
 
       if (tailFrom === null && t >= p.headMs) {
-        // 进入收尾段：把目标定死，并把位置对齐到「距终点正好 D」的地方。
-        // 这一下对齐最多几十像素，发生在高速段的末尾，看不出来；换来的是
-        // **收尾那 250ms 永远走同样的距离、同样的减速曲线**，不论这次跳了多远。
+        // Entering the ending: freeze the target and snap the position to "exactly D from the end".
+        // The snap is a few dozen pixels at most and happens at the end of the fast phase, so it is
+        // invisible; in exchange **the final 250ms always covers the same distance on the same
+        // deceleration curve**, however far this jump went.
         tailGoal = resolve();
         tailFrom = tailGoal - dir * p.tailDistance;
         tailStart = now;
@@ -188,7 +203,8 @@ export function createGlide(view: EditorView): Glide {
       }
 
       if (tailFrom === null) {
-        // 头段：跟着目标走（CodeMirror 会在路上修正它对未渲染区域的高度估算），按比例伸缩
+        // head: follow the target (CodeMirror corrects its height estimates for unrendered
+        // regions along the way), scaled proportionally
         const goal = resolve();
         const headNow = Math.max(0, Math.abs(goal - from) - p.tailDistance);
         const scale = headDist0 > 0 ? headNow / headDist0 : 0;
@@ -201,9 +217,11 @@ export function createGlide(view: EditorView): Glide {
       el.scrollTop = tailFrom + (tailGoal - tailFrom) * (1 - (1 - x) * (1 - x));
       if (x >= 1) {
         cancel();
-        // 落点复核：滚动途中 CodeMirror 还在测量没渲染过的区域，文档总高度会往上长，
-        // 这一刻算出来的终点可能比出发时远（往文末跳时尤其明显 —— 表现就是「没滚到底」）。
-        // 差得多就再补一程（补的那一程同样带固定收尾），最多三轮，避免来回追。
+        // Re-check the landing: while scrolling, CodeMirror is still measuring unrendered regions
+        // and the document's total height grows, so the target computed now may be farther than at
+        // the start (most visible when jumping to the end — it shows up as "didn't scroll to the
+        // bottom"). If it is off by much, glide again (that leg has the same fixed ending), at most
+        // three rounds, so it never chases back and forth.
         const err = resolve() - el.scrollTop;
         if (Math.abs(err) > 2 && depth < 3) to(target, depth + 1);
         return;

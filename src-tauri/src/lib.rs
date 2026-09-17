@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
-use tauri::Emitter; // 只有 macOS 的「打开方式」事件要把路径发给新窗口
+use tauri::Emitter; // only macOS "open with" events need to send the path to a new window
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
@@ -185,7 +185,8 @@ fn new_window(app: tauri::AppHandle) -> Res<()> {
     Ok(())
 }
 
-/// ⌘W：走和点红灯一样的路径（close_requested → 未保存确认），而不是直接销毁窗口。
+/// ⌘W: takes the same path as clicking the red light (close_requested → unsaved-changes confirm)
+/// instead of destroying the window outright.
 #[tauri::command]
 fn close_window(window: tauri::Window) -> Res<()> {
     window.close().map_err(err)
@@ -263,7 +264,8 @@ struct SmokeInfo {
     close: bool,
 }
 
-/// 空字符串也算"设了"，所以要看值本身 —— 否则 `FOO="" app` 会意外打开对话框探针。
+/// An empty string counts as "set" too, so check the value itself — otherwise `FOO="" app` would
+/// accidentally turn on the dialog probe.
 fn flag(name: &str) -> bool {
     std::env::var(name).map(|v| !v.is_empty()).unwrap_or(false)
 }
@@ -293,9 +295,10 @@ fn arg_path() -> Option<String> {
         .map(|p| plain_path(p.to_string_lossy().to_string()))
 }
 
-/// Windows 的 canonicalize 返回 `\\?\C:\...` 这种 verbatim 路径。前端会把 `\` 统一成 `/`
-/// 再拼图片目录，而 `//?/C:/...` 就不再是合法路径了（读得到正文，存不了、显示不了图片）。
-/// 所以去掉前缀，还原成普通的 `C:\...` / `\\server\share\...`。
+/// On Windows, canonicalize returns verbatim paths like `\\?\C:\...`. The frontend normalizes `\`
+/// to `/` before joining the image folder, and `//?/C:/...` is no longer a valid path (the text
+/// still loads, but images can be neither saved nor shown). So strip the prefix and restore a
+/// plain `C:\...` / `\\server\share\...`.
 fn plain_path(p: String) -> String {
     if let Some(rest) = p.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{rest}")
@@ -331,8 +334,9 @@ pub fn run() {
             save_settings
         ])
         .setup(|app| {
-            // 让 webview 成为第一响应者：不这么做的话，窗口刚起来时键盘事件不进网页，
-            // 快捷键要等用户先点进正文才生效
+            // Make the webview first responder: otherwise keyboard events don't reach the page
+            // right after the window comes up, and shortcuts only work once the user clicks into
+            // the text
             for (_, win) in app.webview_windows() {
                 let _ = win.set_focus();
             }

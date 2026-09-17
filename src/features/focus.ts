@@ -39,7 +39,8 @@ export function createFocus(
   prefs: FocusPrefs,
   persist: (p: FocusPrefs) => void,
   glide: Glide,
-  /** 聚焦带 / 内边距变了：外面要重排缩略图，否则它还按旧的 padding 画 */
+  /** the focus band / padding changed: the caller must re-lay out the minimap, or it keeps
+      drawing with the old padding */
   onBandChange: () => void = () => {},
 ) {
   let curve = prefs.curve?.length === 3 ? prefs.curve.map((p) => ({ ...p })) : CURVE_DEFAULT.map((p) => ({ ...p }));
@@ -86,10 +87,13 @@ export function createFocus(
   }
 
   /* ---- band ---- */
-  /* 上下留白。旧编辑器底部固定留 85vh，让最后一行能滚到顶上 —— 但那条规则对短文档是错的：
-     空文档也能滚 9px、三行能滚 93px、一屏放得下的十行能滚 359px，缩略图的选框也跟着能拖。
-     所以现在只有「正文一屏放不下」时才留那段滚过末尾的空白；专注模式同理，正文整个放得进
-     聚焦带就不需要滚。高度要等 CodeMirror 量完才准，所以放在它的测量周期里读写。 */
+  /* Top and bottom padding. The old editor always reserved 85vh at the bottom so the last line
+     could scroll to the top — but that rule is wrong for short documents: an empty document could
+     scroll 9px, three lines 93px, ten lines that fit on one screen 359px, and the minimap's box
+     became draggable along with it. So now the scroll-past-the-end space is only added when the
+     text does not fit on one screen; likewise in focus mode, text that fits entirely in the band
+     needs no scrolling. Heights are only accurate once CodeMirror has measured, so this reads and
+     writes inside its measure cycle. */
   let lastPads = '';
   function applyPads() {
     view.requestMeasure({
@@ -111,7 +115,8 @@ export function createFocus(
           bottom = (textH <= band ? Math.max(0, h - padTop - textH) : ((100 - ftop) * h) / 100) + 'px';
         } else {
           const padTop = parseFloat(getComputedStyle(content).getPropertyValue('--pad-top')) || 44;
-          // 一屏放得下 → 不留滚过末尾的空白（内容盒本身 min-height:100%，点空白处照样落光标）
+          // fits on one screen → no scroll-past-the-end space (the content box itself is
+          // min-height:100%, so clicking the empty area still places the caret)
           bottom = padTop + textH <= h ? '0px' : '';
         }
         const key = top + '|' + bottom;
@@ -135,8 +140,9 @@ export function createFocus(
   let pendingBand = 0;
   function keepCaretInBand() {
     if (!isOn()) return;
-    // 正在滑就等它落地再看 —— 但**不能把这次请求丢掉**：
-    // 「回车后接着打字」的时候，中途来的那些请求一旦被丢，光标就永远留在带外了。
+    // If a glide is running, wait until it lands — but **never drop this request**:
+    // when typing right after Enter, dropping the requests that arrive midway leaves the caret
+    // outside the band for good.
     if (glide.running()) {
       if (!pendingBand) {
         const again = () => {
@@ -151,14 +157,17 @@ export function createFocus(
       }
       return;
     }
-    // 光标位置在出发时取定：途中光标又动了，由上面的 pendingBand 在落地后另起一程，
-    // 而不是让这一程半路改追新的光标（那样会沿用出发时选的边，贴错边）
+    // The caret position is fixed at departure: if the caret moves again midway, pendingBand above
+    // starts a new leg after landing, instead of this leg switching to chase the new caret halfway
+    // (that would keep the edge chosen at departure and align to the wrong edge)
     const head = view.state.selection.main.head;
     const caret = () => {
-      // 途中正文被删短了也不能越界（每帧都在读，抛一次异常滑动就卡住了）
+      // must not go out of range if the text gets shorter midway (this is read every frame; one
+      // exception and the glide gets stuck)
       const pos = Math.min(head, view.state.doc.length);
-      // 光标所在的行没渲染时 coordsAtPos 会返回 null（比如刚把光标移到很远的地方），
-      // 那就退回用 CodeMirror 的高度表算，否则这种情况下永远不会把它带回带内
+      // coordsAtPos returns null when the caret's line is not rendered (e.g. the caret was just
+      // moved far away), so fall back to CodeMirror's height map — otherwise it would never be
+      // brought back into the band in that case
       const block = view.lineBlockAt(pos);
       const fallback = { top: view.documentTop + block.top, bottom: view.documentTop + block.top + block.height };
       return view.coordsAtPos(pos) ?? fallback;
@@ -166,16 +175,20 @@ export function createFocus(
     const c = caret();
     const band = bandPx();
     if (c.top >= band.top && c.bottom <= band.bottom) return;
-    // 目标交给滑动器每帧重新求，而不是按出发时的坐标定死：远处那些行此刻的高度只是估算，
-    // 滚过去的路上才被实测 —— 定死的话，估算差多少，光标就落在带外多少（字体不同的平台上能差出几十像素）。
-    // 贴哪条边在出发时定好，途中不换，免得光标一进带就改目标、来回拉扯。
+    // The glide re-resolves the target every frame instead of fixing it from the coordinates at
+    // departure: the heights of distant lines are only estimates right now and get measured on the
+    // way — with a fixed target, the caret lands outside the band by however much the estimate was
+    // off (tens of pixels on platforms with different fonts).
+    // Which edge to align to is decided at departure and never changes midway, so the target does
+    // not flip the moment the caret enters the band and tug back and forth.
     const below = c.bottom > band.bottom;
     const edge = () => {
       const now = caret();
       const b = bandPx();
       return below ? now.bottom - b.bottom : now.top - b.top;
     };
-    // 滑动的速率曲线与时长见 features/glide.ts（渐入渐出、按跨越行数递进）
+    // for the glide's speed curve and duration see features/glide.ts (ease in/out, scaled by
+    // lines crossed)
     glide.to(() => view.scrollDOM.scrollTop + edge());
   }
   function apply() {

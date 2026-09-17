@@ -1,7 +1,7 @@
-/* The document session: one window, one file (CONTEXT.md → **文档**).
+/* The document session: one window, one file (see the language section of CONTEXT.md).
 
    Four rules live here, and they are the reason this file exists at all:
-   1. autosave writes only to a file that already has a path; a 白纸 (unnamed buffer)
+   1. autosave writes only to a file that already has a path; a blank page (unnamed buffer)
       lives in memory until ⌘S — by choice, not by omission;
    2. the file is watched, because autosave + "no Git safety net" means a silent
       overwrite would destroy someone else's edit;

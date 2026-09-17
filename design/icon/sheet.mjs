@@ -1,6 +1,7 @@
-/* 把 out/*.png 排成一张对照图：每个候选各出 256 / 64 / 32 三种尺寸（Dock、访达列表、菜单栏）。
+/* Lays out out/*.png as one comparison sheet: each candidate at three sizes, 256 / 64 / 32 (Dock,
+ * Finder list, menu bar).
  *   node design/icon/sheet.mjs            → out/finalists.png
- * 小尺寸是真正的取舍点：1024 上好看的笔画，到 32 上常常糊成一团。 */
+ * The small sizes are where the real trade-offs are: strokes that look good at 1024 often blur into a blob at 32. */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +9,7 @@ import { launch } from '../../tests/e2e/harness.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(here, 'out');
-// 定稿排在最前，后面是候选与上一版
+// The final goes first, followed by the candidates and the previous version
 const names = fs
   .readdirSync(out)
   .filter((f) => f.endsWith('.png') && f !== 'finalists.png')

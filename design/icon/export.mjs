@@ -1,4 +1,5 @@
-/* 把定稿导出到 assets/logo/ —— 那是给外面用的发布件，和 out/ 里的过程产物分开。
+/* Exports the final mark to assets/logo/ — the published copies for outside use, kept apart from the
+ * intermediate output in out/.
  *   node design/icon/export.mjs
  */
 import fs from 'node:fs';
@@ -11,7 +12,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const out = path.join(here, '../../assets/logo');
 fs.mkdirSync(out, { recursive: true });
 
-const svg = build(ROUND); // 圆润版 = 定稿
+const svg = build(ROUND); // rounded version = final
 fs.writeFileSync(path.join(out, 'irori-logo.svg'), svg);
 console.log('› assets/logo/irori-logo.svg');
 

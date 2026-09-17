@@ -1,8 +1,9 @@
-# 设计过程的产物全部落在这里，整个不进 git。
-# 一条命令就能重来的东西不该进版本库：
-#   node design/icon/hearth.gen.mjs      标 → out/hearth{,-round}.svg
-#   node design/icon/appicon.gen.mjs     应用图标 → out/irori-app.svg
+# All output of the design process lands here, and none of it goes into git.
+# Anything one command can regenerate doesn't belong in version control:
+#   node design/icon/hearth.gen.mjs      mark → out/hearth{,-round}.svg
+#   node design/icon/appicon.gen.mjs     app icon → out/irori-app.svg
 #   node design/icon/render.mjs <svg>    → out/*.png
-#   node design/icon/export.mjs          发布副本 → assets/logo/
-# 进 git 的是「源」和「发布件」：生成器、设计文稿、assets/logo/、src-tauri/icons/。
+#   node design/icon/export.mjs          published copies → assets/logo/
+# What goes into git is the "sources" and the "published copies": generators, design doc,
+# assets/logo/, src-tauri/icons/.
 out/

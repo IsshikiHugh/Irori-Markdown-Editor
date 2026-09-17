@@ -1,6 +1,7 @@
-/* 图标渲染：SVG 源 → 1024×1024 透明 PNG（用本机 Chromium 光栅化，保证抗锯齿与透明圆角）。
- *   node design/icon/render.mjs                 渲染 out/variants/*.svg 到 out/
- *   node design/icon/render.mjs irori.svg   只渲染一个，输出 out/<名字>.png
+/* Icon rendering: SVG source → 1024×1024 transparent PNG (rasterized with the local Chromium, which
+ * guarantees proper anti-aliasing and transparent rounded corners).
+ *   node design/icon/render.mjs                 render out/variants/*.svg into out/
+ *   node design/icon/render.mjs irori.svg   render just one, writing out/<name>.png
  */
 import fs from 'node:fs';
 import path from 'node:path';

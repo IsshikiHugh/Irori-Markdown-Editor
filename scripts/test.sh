@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# 全量验证：类型 → 单元 → 行为（headless Chromium）→ Rust 外壳。
-#   ./scripts/test.sh           全部
-#   ./scripts/test.sh --fast    跳过 Rust
-#   ./scripts/test.sh B-2       只跑某一组行为用例
+# Full verification: types → unit → behaviour (headless Chromium) → Rust shell.
+#   ./scripts/test.sh           everything
+#   ./scripts/test.sh --fast    skip Rust
+#   ./scripts/test.sh B-2       run one group of behaviour cases only
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Rust：优先用 rustup 装的工具链（Tauri 2 需要 rustc >= 1.88，很多系统包管理器还停在旧版本）
+# Rust: prefer the rustup toolchain (Tauri 2 needs rustc >= 1.88; many system package managers lag behind)
 if [[ -x "$HOME/.cargo/bin/cargo" ]]; then
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
@@ -21,16 +21,16 @@ for arg in "$@"; do
   esac
 done
 
-echo "› 类型检查"
+echo "› typecheck"
 npm run typecheck
 
-echo "› 单元测试"
+echo "› unit tests"
 npx vitest run
 
-echo "› 构建"
+echo "› build"
 npx vite build >/dev/null
 
-echo "› 行为测试"
+echo "› behaviour tests"
 if [[ -n "$only" ]]; then
   node tests/e2e/run.mjs --only "$only"
 else
@@ -38,23 +38,24 @@ else
 fi
 
 if [[ -n "${IRORI_LEGACY_BLOG:-}" ]]; then
-  echo "› 对照实验（新 vs 旧）"
-  # 比哪几篇由 IRORI_COMPARE_SLUGS 给（空格分隔）—— 文章是各人博客里的，这里不写死
-  [[ -n "${IRORI_COMPARE_SLUGS:-}" ]] || echo "  跳过：未设置 IRORI_COMPARE_SLUGS（空格分隔的文章 slug）"
+  echo "› comparison against the legacy editor"
+  # Which posts to compare comes from IRORI_COMPARE_SLUGS (space-separated) — they live in each
+  # person's own blog, so nothing is hard-coded here
+  [[ -n "${IRORI_COMPARE_SLUGS:-}" ]] || echo "  skipped: IRORI_COMPARE_SLUGS is not set (space-separated post slugs)"
   for slug in ${IRORI_COMPARE_SLUGS:-}; do
     node tests/compare/run.mjs --slug $slug
   done
 fi
 
 if [[ "$fast" == "0" ]]; then
-  echo "› Rust 外壳"
+  echo "› Rust shell"
   cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
   cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
-  echo "› 打包 debug 产物（冒烟要用当前代码，不能拿旧产物当数）"
+  echo "› build debug bundle (the smoke test must run the current code, not a stale build)"
   npx tauri build --debug --bundles app >/dev/null
-  echo "› 真机冒烟（系统 WebView）"
+  echo "› smoke test (system WebView)"
   ./scripts/smoke.sh --dialog
   ./scripts/smoke.sh --close
 fi
-echo "› 全部通过"
+echo "› all passed"

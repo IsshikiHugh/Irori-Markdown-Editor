@@ -18,7 +18,8 @@ import { imageNavKeymap } from './image-nav';
 
 export type EditorHooks = {
   onChange: (doc: string) => void;
-  /** 每次更新（文档或选区变了）都会叫一次 —— 专注模式靠它把光标带回聚焦带 */
+  /** called on every update (document or selection changed) — focus mode relies on it to bring
+      the caret back into the band */
   onUpdate: (docChanged: boolean, selectionSet: boolean) => void;
   onSave: () => void;
   onImage: (file: File) => void;
@@ -136,9 +137,10 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
       extensions: [
         EditorView.lineWrapping,
         history({ minDepth: 200, newGroupDelay: 350 }),
-        // cursorBlinkRate: 0 —— 关掉 CodeMirror 自带的硬切闪烁（steps(1) 1.2s）。
-        // 它和我们那条 1.15s 的柔和呼吸是两套动画，周期又差一点点，叠在一起会越跑越错相，
-        // 闪几下就变成「双闪」。光标的明暗完全交给 CSS（style.css: caretfade）。
+        // cursorBlinkRate: 0 — turns off CodeMirror's built-in hard on/off blink (steps(1) 1.2s).
+        // That and our soft 1.15s breathing are two separate animations with slightly different
+        // periods; layered, they drift further out of phase until, after a few blinks, it becomes a
+        // "double blink". The caret's fade is left entirely to CSS (style.css: caretfade).
         drawSelection({ cursorBlinkRate: 0 }),
         dropCursor(),
         rectangularSelection(),
@@ -157,7 +159,8 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
           { key: 'Mod-b', preventDefault: true, run: wrapWith('**') },
           { key: 'Mod-i', preventDefault: true, run: wrapWith('*') },
           { key: 'Mod-f', preventDefault: true, run: openSearchPanel },
-          // historyKeymap 在 Windows 上只把 Ctrl-Y 当重做；补上 ⌘⇧Z / Ctrl-Shift-Z，三个平台一个按法
+          // historyKeymap only treats Ctrl-Y as redo on Windows; add ⌘⇧Z / Ctrl-Shift-Z so all three
+          // platforms share one shortcut
           { key: 'Mod-Shift-z', preventDefault: true, run: redo },
           {
             key: 'Escape',

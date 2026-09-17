@@ -1,4 +1,4 @@
-/* 段首连打两个半角空格 → 两个全角空格「　　」.
+/* Two half-width spaces typed at the start of a paragraph → two full-width spaces (U+3000).
 
    Why: markdown eats leading ASCII spaces, so a Chinese paragraph's first-line indent
    never survives rendering; U+3000 does. Inside a fenced code block nothing is touched —

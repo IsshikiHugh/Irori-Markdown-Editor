@@ -28,14 +28,15 @@ export function createMinimap(
   vp: HTMLElement,
   resolveAsset: (src: string) => string | null,
   glide: Glide,
-  /** 选框要标出的「真正看得见的那一段」：普通模式是整个视口，专注模式是聚焦带。
-      返回相对滚动容器顶端的偏移与高度。 */
+  /** the stretch that is actually visible, which the box must mark: the whole viewport normally,
+      the focus band in focus mode. Returns offset from the scroller's top and height. */
   visibleRange: () => { offset: number; height: number } = () => ({ offset: 0, height: view.scrollDOM.clientHeight }),
 ): Minimap {
   let scale = 0.16;
   let shift = 0;
-  /** 顶端留白：默认和其它三边一样是 PAD；macOS 透明标题栏下最上面那条是窗口拖拽区，
-      选框要让到它下面去（CSS 变量 --mini-top，见 style.css 的 body.overlay-titlebar） */
+  /** top inset: PAD by default, like the other three sides; under the transparent macOS title
+      bar the topmost strip is the window drag region, so the box must stay below it (CSS
+      variable --mini-top, see body.overlay-titlebar in style.css) */
   let topInset = PAD;
   let mode: 'pin' | 'slide' = 'pin';
   let dragging = false;
@@ -49,7 +50,8 @@ export function createMinimap(
 
   function metrics() {
     const s = scroller();
-    // 文字列的宽度（clientWidth 含左右内边距，而缩略图要按文字列等比缩放）
+    // width of the text column (clientWidth includes left/right padding, but the minimap scales
+    // to the text column)
     const cs = getComputedStyle(view.contentDOM);
     const width =
       (view.contentDOM.clientWidth || 700) - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
@@ -130,7 +132,8 @@ export function createMinimap(
 
   function layout() {
     const s = scroller();
-    // 一屏放得下时根本没有可滚的范围 —— 选框不该显示成可以抓着拖的样子
+    // when everything fits on one screen there is nothing to scroll — the box should not look
+    // draggable
     mini.classList.toggle('noscroll', s.scrollHeight <= s.clientHeight + 1);
     const { width, miniH, vpH, boxNat } = metrics();
     render(width, miniH);
@@ -148,14 +151,14 @@ export function createMinimap(
   }
 
   const onDown = (e: MouseEvent) => {
-    // 按在缩略图上就不该在正文里拉出一片选区 —— 这里的拖拽只管滚动
+    // pressing on the minimap must not drag out a selection in the text — dragging here only scrolls
     e.preventDefault();
-    if (mini.classList.contains('noscroll')) return; // 没得滚：点也不跳、拖也不动
+    if (mini.classList.contains('noscroll')) return; // nothing to scroll: no click-jump, no drag
     const s = scroller();
     if (e.target !== vp) {
       const y = e.clientY - mini.getBoundingClientRect().top;
       const scrollSpaceY = (y - (topInset - shift)) / scale;
-      // 点击是「跳转」→ 滑过去；下面的拖拽仍然 1:1 跟手
+      // a click is a "jump" → glide there; the drag below still tracks the pointer 1:1
       glide.to(Math.max(0, scrollSpaceY - s.clientHeight / 2));
     }
     dragging = true;
@@ -164,7 +167,7 @@ export function createMinimap(
   };
   const onMove = (e: MouseEvent) => {
     if (!dragging) return;
-    glide.cancel(); // 开始拖了就别再跟动画抢
+    glide.cancel(); // once dragging starts, don't fight the animation
     scroller().scrollTop = Math.max(0, boxTopToScroll(e.clientY - grabOffset));
   };
   const onUp = () => {

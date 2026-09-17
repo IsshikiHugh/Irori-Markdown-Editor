@@ -75,17 +75,17 @@ console.log(`\n› ${t.results.length - failed.length}/${t.results.length} cases
 
 if (wantReport) {
   const lines = [
-    '# 行为对照报告',
+    '# Behaviour Report',
     '',
-    `生成时间：${new Date().toISOString()}`,
+    `Generated: ${new Date().toISOString()}`,
     '',
-    '| 编号 | 行为 | 结果 | 断言 |',
+    '| ID | Behaviour | Result | Assertions |',
     '| --- | --- | --- | --- |',
     ...t.results.map((r) => `| ${r.id} | ${r.name} | ${r.ok ? '✅' : '❌'} | ${r.checks.length} |`),
     '',
-    `合计：${t.results.length - failed.length}/${t.results.length} 通过，${checks} 条断言。`,
+    `Total: ${t.results.length - failed.length}/${t.results.length} passed, ${checks} assertions.`,
     '',
-    '人工验收项见 [behavior-checklist.md](./behavior-checklist.md) 中标记为「人工」的条目。',
+    'Manual acceptance items are the ones listed as manual checks in [behavior-checklist.md](./behavior-checklist.md).',
     '',
   ];
   fs.mkdirSync(path.join(ROOT, 'docs/acceptance'), { recursive: true });

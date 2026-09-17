@@ -1,91 +1,109 @@
-/* 「囲炉裏」立体标：等角投影下的方形火塘。
+/* The Irori (囲炉裏) 3D mark: a square sunken hearth in isometric projection.
  *   node design/icon/hearth.gen.mjs && node design/icon/render.mjs out/hearth-round.svg
  *
- * 输出两版，共用同一套几何，差别只在两个圆角半径：
- *   out/hearth.svg        直角版（RS = RG = 0）
- *   out/hearth-round.svg  圆润版 ← 定稿
- * out/ 整个不进 git —— 一条命令就能重来的东西不该进版本库，发布用的副本在 assets/logo/。
+ * Emits two versions that share the same geometry and differ only in two corner radii:
+ *   out/hearth.svg        square-cornered (RS = RG = 0)
+ *   out/hearth-round.svg  rounded ← final
+ * out/ is entirely git-ignored: anything one command can regenerate doesn't belong in version
+ * control. The published copies live in assets/logo/.
  *
- * ── 为什么是生成的，不是画的 ────────────────────────────────
- * 这张图上所有「该等宽的」和「该对称的」都不靠眼力：炉缘的黑边、井桁的笔画、笔画到
- * 炉缘的留白，全部由下面一组世界坐标常量推出来，再过同一个等角投影。凹槽露出来的内壁
- * 也不是画上去的 —— 由开口多边形逐条边算出哪一面朝着镜头，只画那些。
- * 于是「透视关系」是算出来的结果，不是画出来的效果：改任何一个数，遮挡关系自己重排。
+ * ── Why generated, not drawn ────────────────────────────────
+ * Nothing here that "should be equal width" or "should be symmetric" relies on eyeballing: the
+ * black hearth rim, the igeta strokes and the clearance between strokes and rim are all derived
+ * from the world-coordinate constants below, then passed through one isometric projection. The
+ * inner walls exposed by the recesses aren't hand-drawn either: for each edge of the opening
+ * polygon we compute which faces point toward the camera, and draw only those.
+ * So the "perspective" is a computed result, not a painted effect: change any number and the
+ * occlusion rearranges itself.
  *
- * ── 图形的意思 ───────────────────────────────────────────────
- * 外面一圈黑 = 炉缘（炉縁），也就是「囲」字外面那个口；
- * 里面四道凹槽 = 井桁框，也就是「囲」字里面那个井，同时是 Markdown 的 #；
- * 井字正中那一格再往下沉一层 = 火塘本身，亮着的是炭，升上来的是烟。
+ * ── What the shape means ─────────────────────────────────────
+ * The black outer ring = the hearth rim (炉縁), i.e. the enclosing 口 of the 囲 character;
+ * the four inner grooves = the igeta (井桁) frame, i.e. the 井 inside 囲, which is also Markdown's #;
+ * the center cell of the 井 sinks one level further = the hearth itself: the glow is the embers,
+ * the rising shape is the smoke.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 
-/* ── 尺寸 ───────────────────────────────────────────────────
- * 世界坐标 = 俯视时的平面尺寸。沿着穿过中心的一条线看过去，从外到内是
+/* ── Dimensions ─────────────────────────────────────────────
+ * World coordinates = plan dimensions seen from above. Along a line through the center, from the
+ * outside in:
  *
- *     炉缘 12 │ 留白 18 │ 笔画 12 │ 火塘 24 │ 笔画 12 │ 留白 18 │ 炉缘 12  = 108 = 2R
+ *     rim 12 │ margin 18 │ stroke 12 │ hearth 24 │ stroke 12 │ margin 18 │ rim 12  = 108 = 2R
  *
- * 全部是 6 的整数倍。取 u = 6，从外到内就是 2u │ 3u │ 2u │ 4u │ 2u │ 3u │ 2u = 18u。
- * 该等宽的三样东西同为 2u：炉缘（「囲」外面那个口）、井桁笔画（里面那个井）、以及笔画
- * 越过交叉点的出头 —— 出头和笔画同长，「井」才读得出是四笔，而不是一圈带疙瘩的方环。
- * 火塘 4u 是唯一放大的那一格，因为它是主角；笔画端头离炉缘留 1u。
- * 留白 M 被出头和端头余地分掉：M = OUT + 余地，所以 OUT 一动，余地自己配平。 */
+ * All multiples of 6. With u = 6, outside-in reads 2u │ 3u │ 2u │ 4u │ 2u │ 3u │ 2u = 18u.
+ * The three things that must share a width are all 2u: the rim (the outer 口 of 囲), the igeta
+ * strokes (the inner 井), and each stroke's overhang past its crossing. The overhang equals the
+ * stroke width so that the 井 reads as four strokes, not as a square ring with lumps on it.
+ * The 4u hearth is the only enlarged cell, because it is the protagonist; stroke ends keep 1u
+ * from the rim. The margin M is split between overhang and end clearance: M = OUT + clearance,
+ * so when OUT changes, the clearance rebalances itself. */
 export const DEFAULTS = {
-  R: 54, //   台面外沿半宽（= 9u）
-  B: 12, //   炉缘黑边（2u）
-  G: 12, //   井桁笔画宽度（2u）
-  A: 12, //   中央火塘半宽（2u，火塘整格 4u）
-  OUT: 12, // 笔画越过交叉点的出头（2u；端头离炉缘还剩 M - OUT = 1u）
-  H: 24, //   台面厚度（向下挤出，4u）
-  D1: 5, //   井桁凹槽深度
-  D2: 6, //   火塘比凹槽再深的那一层
-  RS: 0, //   台面外轮廓 / 顶面的圆角半径（世界单位，0 = 直角）
-  RF: null, // 炉内地面的圆角半径；null = 取 RS - B（同心偏移），炉缘因此在角上也保持等宽
-  RG: 0, //   井桁开口与火塘的圆角半径
-  TIP: 1.5, // 左右两个尖角上圆弧的半径（屏幕像素）。切点落在距端点约 1.5×TIP 处，
-  //          所以这个数不能大：7 就把尖角整个磨成了圆头，朝上的姿态全没了
-  FIL: 5, //  竖缝两端等直角转角的圆头半径（屏幕像素）
-  GAP: 5, //  台面各面之间的缝隙宽度（世界单位）。顶面与侧面之间让出这么高，
-  //          近处那条竖棱左右各退 GAP/2 —— 两处缝在画面上的垂直宽度正好相等
-  WMAX: 11.5, // 烟最粗处
-  SPINE: null, // 烟的中轴线，默认见下
+  R: 54, //   half-width of the slab's outer edge (= 9u)
+  B: 12, //   black hearth rim (2u)
+  G: 12, //   igeta stroke width (2u)
+  A: 12, //   half-width of the central hearth (2u; the full hearth cell is 4u)
+  OUT: 12, // stroke overhang past the crossing (2u; leaves M - OUT = 1u between stroke end and rim)
+  H: 24, //   slab thickness (extruded downward, 4u)
+  D1: 5, //   igeta groove depth
+  D2: 6, //   extra depth of the hearth below the groove
+  RS: 0, //   corner radius of the slab outline / top face (world units, 0 = square)
+  RF: null, // corner radius of the hearth floor; null = RS - B (concentric offset), so the rim
+  //          keeps its width at the corners too
+  RG: 0, //   corner radius of the igeta opening and the hearth
+  TIP: 1.5, // radius of the arcs on the left and right sharp tips (screen px). The tangent point
+  //          lands about 1.5×TIP from the tip, so keep this small: 7 grinds the tip into a round
+  //          nub and the upward-pointing stance is gone
+  FIL: 5, //  radius of the rounded caps on right-angle corners such as both ends of the vertical
+  //          seam (screen px)
+  GAP: 5, //  width of the gaps between slab faces (world units). The side walls drop this far below
+  //          the top face, and the nearest vertical edge is cut back GAP/2 on each side, so the two
+  //          gaps come out exactly equal in on-screen width measured perpendicular to the gap
+  WMAX: 11.5, // smoke width at its thickest
+  SPINE: null, // smoke centerline; default below
   SCALE: 2.08,
   CX: 256,
   CY: 280,
-  SMOKE: null, // 烟的颜色，null = 编辑器的 --tok（源码标记色）
-  FLOOR: null, // 炉内地面的颜色，null = 默认的炉灰色
-  FIRE: true, // 中央那格烧不烧着；false = 只剩一个更深的坑
-  BG: false, // 画不画纸色底；默认不画，底色留给使用方
+  SMOKE: null, // smoke color; null = the editor's --tok (source-marker color)
+  FLOOR: null, // hearth floor color; null = the default ash color
+  FIRE: true, // whether the center cell is burning; false = just a deeper pit
+  BG: false, // whether to paint the paper background; off by default, left to the consumer
 };
 
-/* 等角投影：+x 往右下、+y 往左下、+z 往上。镜头在 (+1,+1,+1) 方向，
-   所以外法线与 (1,1,1) 点积为正的面才看得见 —— visibleWalls() 判的就是这个。 */
+/* Isometric projection: +x goes down-right, +y down-left, +z up. The camera looks from the
+   (+1,+1,+1) direction, so a face is visible only if its outward normal has a positive dot
+   product with (1,1,1) — that is exactly what wallRuns() tests. */
 const C30 = Math.cos(Math.PI / 6);
 const S30 = 0.5;
 
-/* ── 配色 ───────────────────────────────────────────────────
- * 全是纯色：没有渐变，没有半透明，背景也不画 —— 底色留给使用方自己定。
- * 台面上下三个面共用同一个黑：立体感不再靠明暗差，而是靠面与面之间的缝隙（见 GAP）。
- * 只有凹槽内部还分两档明暗 —— 那不是接缝，那是「这里凹下去了」唯一的线索，
- * 换成缝隙就会漏出地面的纸色，看着像裂开而不是凹陷。 */
-const INK = '#221C18'; //   台面：顶面和两个侧面同色
-const FLOOR = '#F7F3EC'; // 炉内地面（炉灰）= 编辑器的 --paper
-const GROOVE = '#231A15'; //凹槽底
-const GWALL = '#33271F'; // 凹槽内壁
-const PWALL = '#7E3D14'; // 火塘内壁，被炭从下面照着
-const EMBER = '#F0A44B'; // 炭火（原来那圈高亮渐变的中段，取成一个平色）
-/* 烟取编辑器的 --tok（#C3B7A4）—— 正文里那些「淡下去的」源码标记就是这个颜色，
-   于是升起来的这道烟和你正在写的 # 是同一档灰。
-   本来想用 --paper(#F7F3EC)，但那样标放到编辑器自己的底色上，出了炉缘的那一截烟
-   会整根消失 —— 同色。--tok 比纸色深两档，在纸色底、白底、炉缘上都看得见。 */
+/* ── Palette ────────────────────────────────────────────────
+ * Solid colors only: no gradients, no translucency, and no background — that is left to the consumer.
+ * The slab's three visible faces (top and two sides) share one black: depth no longer comes from
+ * shading but from the gaps between faces (see GAP).
+ * Only the inside of the recesses keeps two shades. That isn't a seam; it is the only cue that
+ * "this part is sunken". A gap there would expose the paper-colored floor and read as a crack,
+ * not a recess. */
+const INK = '#221C18'; //   slab: top face and both side faces
+const FLOOR = '#F7F3EC'; // hearth floor (ash) = the editor's --paper
+const GROOVE = '#231A15'; //groove bottom
+const GWALL = '#33271F'; // groove inner walls
+const PWALL = '#7E3D14'; // hearth inner walls, lit from below by the embers
+const EMBER = '#F0A44B'; // embers (the midpoint of the old highlight gradient, taken as one flat color)
+/* Smoke uses the editor's --tok (#C3B7A4): the color of the "faded" source markers in body text,
+   so the rising smoke is the same gray as the # you are typing.
+   --paper (#F7F3EC) was the first choice, but with the mark placed on the editor's own background,
+   the part of the smoke that rises past the rim would vanish entirely (same color). --tok is two
+   steps darker than paper and stays visible on paper, on white and on the rim. */
 const SMOKE = '#C3B7A4';
 
-/* 烟：起笔在炭火正中，一个长右弯、一个左回锋，收笔勾一下。中轴线由三次贝塞尔串起来，
-   每个拐点处切线竖直，S 形因此是连续曲率的；粗细由 width() 单独给，两端归零才收得出尖。
-   左右换边刻意安排在 y≈-65，也就是越过炉缘最远那个角（y = -R = -54）之后 ——
-   否则烟正好骑在那个角上，看着像被戳穿了。 */
+/* Smoke: starts at the center of the embers, makes one long bend to the right, one turn back to
+   the left, and ends with a small hook. The centerline is a chain of cubic Beziers with a vertical
+   tangent at every joint, so the S curve has continuous curvature; the width is given separately by
+   width() and goes to zero at both ends so they taper to a point.
+   The left/right switch is deliberately placed at y≈-65, just past the rim's farthest corner
+   (y = -R = -54); otherwise the smoke would sit right on that corner and look skewered by it. */
 const SPINE = [
   [0, 7],
   [0, -17], [13, -19], [13, -45],
@@ -93,13 +111,17 @@ const SPINE = [
   [-10, -93], [-4, -99], [3, -96],
 ];
 
-/* ── 圆角：在世界平面里磨，不是在画面上磨 ────────────────────
-   一开始我图省事直接对投影后的多边形倒角，结果台面顶面和侧面各磨各的，左右两个角
-   上侧面支出一块黑 —— 因为顶面那个角是 60°、轮廓那个角是 150°，同一个半径磨出来
-   的弧根本对不上。圆角必须发生在投影之前：把平面上的方角换成圆弧、采样成折线，
-   再整条送进投影。这样顶面、侧面、遮挡边界全部自动一致。
+/* ── Corner rounding: in the world plane, not on screen ─────────────
+   At first I took the shortcut of filleting the projected polygons directly, and the slab's top
+   face and side faces got rounded independently: a chunk of black side wall stuck out at the left
+   and right corners, because the top-face corner there is 60° while the outline corner is 150°,
+   and arcs of the same radius on those simply don't line up. Rounding must happen before
+   projection: replace the square corners in plan with arcs, sample them into polylines, then send
+   the whole thing through the projection. That way top face, side walls and occlusion boundaries
+   all stay consistent automatically.
 
-   采样密度按半径走：弦高误差压在 0.1 个世界单位以内，肉眼看不出是折线。 */
+   Sampling density follows the radius: the sagitta error stays within 0.1 world units, so the
+   polyline is indistinguishable from a curve by eye. */
 function roundPlan(pts, r) {
   if (!(r > 0)) return pts;
   const m = pts.length;
@@ -110,15 +132,18 @@ function roundPlan(pts, r) {
     const [x2, y2] = pts[(i + 1) % m];
     const l1 = Math.hypot(x1 - x0, y1 - y0);
     const l2 = Math.hypot(x2 - x1, y2 - y1);
-    const u1 = [(x0 - x1) / l1, (y0 - y1) / l1]; // 顶点指向前一个点
-    const u2 = [(x2 - x1) / l2, (y2 - y1) / l2]; // 顶点指向后一个点
+    const u1 = [(x0 - x1) / l1, (y0 - y1) / l1]; // from the vertex toward the previous point
+    const u2 = [(x2 - x1) / l2, (y2 - y1) / l2]; // from the vertex toward the next point
     const half = Math.acos(Math.max(-1, Math.min(1, u1[0] * u2[0] + u1[1] * u2[1]))) / 2;
-    // 沿边回退 t = r/tan(半角)：等角投影下角有 60° 也有 120°，固定回退量会让两者一胖一瘦。
-    // 另外不许超过邻边的一半，短边上的圆角自动收小，不会互相吃掉。
+    // Back off along each edge by t = r/tan(half-angle): in isometric view there are both 60° and
+    // 120° corners, and a fixed back-off would make one fat and the other thin.
+    // It also may not exceed half of either adjacent edge, so corners on short edges shrink on
+    // their own instead of eating into each other.
     const t = Math.min(r / Math.tan(half), l1 / 2, l2 / 2);
     const rr = t * Math.tan(half);
     if (!(rr > 1e-6)) { out.push([x1, y1]); continue; }
-    // 圆心在两条边的角平分线上（凸角凹角通用：平分线总是指向该磨的那一侧）
+    // The center lies on the bisector of the two edges (works for convex and concave corners
+    // alike: the bisector always points to the side being rounded)
     const bx = u1[0] + u2[0], by = u1[1] + u2[1];
     const bl = Math.hypot(bx, by) || 1;
     const cx = x1 + (bx / bl) * (rr / Math.sin(half));
@@ -136,10 +161,12 @@ function roundPlan(pts, r) {
   return out;
 }
 
-/* 逐段算这一小段侧壁朝不朝着镜头。竖直墙面的法线没有 z 分量，所以「朝镜头」就是
-   n·(1,1) > 0。solid 说明实心在多边形的哪一侧：台面是实心在里（法线朝外），
-   凹槽是实心在外（法线朝内）。绕向由带符号面积定，所以顶点怎么排都不影响结论。
-   返回连续的若干段，并按法线偏 +x 还是偏 +y 分开 —— 这两侧的明暗不一样。 */
+/* For each short segment of side wall, decide whether it faces the camera. A vertical wall's
+   normal has no z component, so "facing the camera" means n·(1,1) > 0. `solid` says which side of
+   the polygon is solid: the slab is solid inside (normals point out), a groove is solid outside
+   (normals point in). The winding comes from the signed area, so vertex order doesn't matter.
+   Returns contiguous runs, separated by whether the normal leans toward +x or +y — the two sides
+   are shaded differently. */
 function wallRuns(pts, solid, split = false) {
   const m = pts.length;
   let area = 0;
@@ -155,11 +182,12 @@ function wallRuns(pts, solid, split = false) {
     const ny = -sgn * (b[0] - a[0]);
     return { vis: nx + ny > 1e-9, x: nx > ny };
   });
-  // split 时按法线偏 +x 还是偏 +y 再切一刀 —— 切口正好落在最近的那条棱上。
-  // 不切的话一段连续侧壁就是一条路径，同色相邻不会留下抗锯齿的接缝。
+  // With split, cut once more by whether the normal leans +x or +y — the cut lands exactly on the
+  // nearest edge. Unsplit, a continuous stretch of side wall stays one path, so same-colored
+  // neighbors leave no anti-aliasing seam.
   const key = (k) => (seg[k].vis ? (split ? (seg[k].x ? 'x' : 'y') : 'v') : '-');
   let s0 = 0;
-  while (s0 < m && key(s0) === key((s0 - 1 + m) % m)) s0++; // 从一个分界处起步，别把环形的一段劈成两半
+  while (s0 < m && key(s0) === key((s0 - 1 + m) % m)) s0++; // start at a boundary so a run wrapping around the ring isn't split in two
   if (s0 >= m) s0 = 0;
   const runs = [];
   for (let k = 0; k < m; ) {
@@ -170,7 +198,7 @@ function wallRuns(pts, solid, split = false) {
       runs.push({
         start: i,
         len,
-        head: seg[(i - 1 + m) % m].vis, // 上游也可见 → 这一端是切口，要退开留缝
+        head: seg[(i - 1 + m) % m].vis, // upstream is visible too → this end is a cut and must back off to leave a gap
         tail: seg[(i + len) % m].vis,
       });
     }
@@ -179,14 +207,15 @@ function wallRuns(pts, solid, split = false) {
   return runs;
 }
 
-/** 沿折线按弧长回退首尾各一段。 */
+/** Trim a polyline back by arc length at its head and tail. */
 function trimArc(list, head, tail) {
   const cut = (pts, want) => {
     if (!(want > 0)) return pts;
     let rest = want;
     const out = pts.slice();
-    // 注意 length === 2 也要能裁 —— 端面就是两个点的直线段，早先这里写成 length > 2，
-    // 结果端面从没被裁过，那几个直角的圆头一次都没生效
+    // Note that length === 2 must be trimmable too — an end face is a two-point straight segment.
+    // This once said length > 2, so end faces were never trimmed and those right-angle round caps
+    // never took effect
     while (out.length >= 2) {
       const d = Math.hypot(out[1][0] - out[0][0], out[1][1] - out[0][1]);
       if (d > rest) {
@@ -194,24 +223,27 @@ function trimArc(list, head, tail) {
         out[0] = [out[0][0] + (out[1][0] - out[0][0]) * t, out[0][1] + (out[1][1] - out[0][1]) * t];
         return out;
       }
-      if (out.length === 2) return out; // 再裁就没有段了
+      if (out.length === 2) return out; // trimming further would leave no segment
       rest -= d;
       out.shift();
     }
     return out;
   };
-  // reverse() 是原地的：cut(list, 0) 会把原数组原样返回，再 .reverse() 就把调用方的
-  // 数组翻了面。裁剪结果看着没事，但调用方后面再拿 list[last] 就取到了另一头 ——
-  // 侧壁上那根刺就是这么来的（FIL=0 时翻两次正好抵消，所以只在倒角开着时露出来）。
+  // reverse() works in place: cut(list, 0) returns the original array untouched, and .reverse()
+  // on it would flip the caller's array. The trimmed result looks fine, but when the caller later
+  // takes list[last] it gets the other end — that is where the spike on the side wall came from
+  // (with FIL=0 the two flips cancel out, so it only showed up with filleting enabled).
   const rev = (a) => a.slice().reverse();
   return rev(cut(rev(cut(list, head)), tail));
 }
 
-/* 从折线的一端往里退，直到**屏幕横向**位移达到 want。
-   原来是按弧长退的，直边上没问题，可一磨圆就错了：近角上那条竖缝由两个端点的
-   屏幕横坐标决定，而屏幕横坐标只跟 (x - y) 有关。沿直边退 c，(x-y) 正好变 c；
-   沿半径 rr 的圆弧退同样的 c，(x-y) 却变了 √2·c —— 缝於是宽了 41%，
-   正好是你圈出来的那一处。所以退让必须按 (x - y) 量，跟直边圆角无关。 */
+/* Back off from one end of the polyline until the **horizontal screen** displacement reaches want.
+   This used to back off by arc length, which is fine on straight edges but wrong once rounded:
+   the vertical seam at the near corner is set by the screen x of its two endpoints, and screen x
+   depends only on (x - y). Backing off c along a straight edge changes (x-y) by exactly c; backing
+   off the same c along an arc of radius rr changes (x-y) by √2·c — so the seam got 41% wider,
+   which is exactly the spot that was circled in review. Hence the back-off must be measured in
+   (x - y), regardless of straight edges or rounded corners. */
 function trimDelta(list, head, tail) {
   const key = ([x, y]) => x - y;
   const cut = (pts, want) => {
@@ -230,7 +262,7 @@ function trimDelta(list, head, tail) {
     }
     return out;
   };
-  const rev = (a) => a.slice().reverse(); // 同上：不能原地翻转调用方的数组
+  const rev = (a) => a.slice().reverse(); // same as above: never reverse the caller's array in place
   return rev(cut(rev(cut(list, head)), tail));
 }
 
@@ -241,76 +273,84 @@ export function build(o = {}) {
   const floorFill = o.FLOOR || FLOOR;
   const pitFill = o.FIRE === false ? GROOVE : (o.EMBER || EMBER);
   const pitWall = o.FIRE === false ? GWALL : PWALL;
-  const F = R - B; //   炉内地面半宽
-  // 圆角同心收缩：外圈半径 RS 的弧往里让 B，内圈就是 RS - B。不这么取的话，
-  // 黑边在四个角上会比直边处窄一截 —— 等宽就破了。
+  const F = R - B; //   half-width of the hearth floor
+  // Concentric shrink: the outer arc of radius RS moves in by B, so the inner radius is RS - B.
+  // Otherwise the black rim would be noticeably narrower at the four corners than along the
+  // straight edges, breaking the equal width.
   const rf = RF == null ? Math.max(0, RS - B) : RF;
-  const BO = A + G; //  笔画外沿
-  const M = F - BO; //  每侧留白
-  const E = BO + OUT; //笔画伸出的半长
-  if (OUT >= M) throw new Error(`笔画顶到炉缘了：OUT(${OUT}) 必须小于留白 M(${M})`);
+  const BO = A + G; //  outer edge of the strokes
+  const M = F - BO; //  margin on each side
+  const E = BO + OUT; //half-length of a stroke including its overhang
+  if (OUT >= M) throw new Error(`Strokes run into the hearth rim: OUT(${OUT}) must be less than the margin M(${M})`);
 
   const px = (x, y) => CX + SCALE * (x - y) * C30;
   const py = (x, y, z = 0) => CY + SCALE * ((x + y) * S30 - z);
   const n = (v) => String(Math.round(v * 100) / 100);
   const pt = ([x, y], z) => `${n(px(x, y))},${n(py(x, y, z))}`;
-  /** 一圈平面折线投影到某个高度，拼成闭合 path。 */
+  /** Project a closed planar polyline to a given height and emit it as a closed path. */
   const face = (pts, z = 0) => 'M' + pts.map((p) => pt(p, z)).join('L') + 'Z';
-  /** 取出一段 run 对应的折线；gap 为真时把挨着别的 run 的那一端退开 GAP/2。 */
+  /** Extract the polyline of a run; when gap is truthy, back off GAP/2 at ends that touch another run. */
   const runPts = (ring, run, gap) => {
     const list = [];
     for (let k = 0; k <= run.len; k++) list.push(ring[(run.start + k) % ring.length]);
-    // 只裁切口那一端（按 x-y 退 GAP/2，竖缝宽度由此定死）。自由端不动 —— 边界要留在原处。
+    // Trim only the cut ends (back off GAP/2 in x-y, which pins the vertical seam width). Free ends
+    // stay put — the boundary has to remain where it is.
     return gap ? trimDelta(list, run.head ? GAP / 2 : 0, run.tail ? GAP / 2 : 0) : list;
   };
-  /** 一段侧壁：上缘走过去、下缘走回来。曲的直的一视同仁。 */
+  /** One strip of side wall: out along the top edge, back along the bottom edge. Curved or straight alike. */
   const band = (list, z, d) =>
     'M' + list.map((p) => pt(p, z)).concat(list.slice().reverse().map((p) => pt(p, z - d))).join('L') + 'Z';
 
-  /* 缝在画面上的宽度（垂直于缝量）。竖缝那道由 x-y 的退让直接定死在这个值上，
-     横着那道则是侧壁整体下沉 GAP 的结果 —— 直边上正好也是这个值。 */
+  /* On-screen width of a gap (measured perpendicular to the gap). The vertical seam is pinned to
+     this value directly by the x-y back-off; the horizontal one results from the whole side wall
+     dropping by GAP — and on straight edges it comes out exactly this value too. */
   const GW = C30 * SCALE * GAP;
 
-  /* 侧壁的端面。左右两个尖角上原来是针状的：端面竖直，上缘在那里的切线也正好竖直
-     —— 等角投影里轮廓的侧影点就定义在「切线转成竖直」的那一刻，两条边於是几乎平行地
-     碰头，夹角接近零。
+  /* End faces of the side walls. At the left and right sharp tips they used to be needle-like: the
+     end face is vertical, and the top edge's tangent there is exactly vertical as well — in
+     isometric projection the outline's silhouette point is defined as the moment the tangent turns
+     vertical — so the two edges meet almost parallel, at an angle close to zero.
 
-     这种角不能靠倒角处理（半径 r 的倒角要沿边回退 r/tan(半角)，半角趋零时发散），
-     得**补一段与两边都相切的圆弧**。圆心取在距端面 r 处（横坐标 x0 + r），沿上缘找到
-     切点 Q，圆弧从端面上的切点 A 转到 Q。因为圆心横坐标恰好是 x0 + r，A 就是圆的最左点
-     —— 也就是说圆头的最左端仍然落在 x0 这条线上，**边界一点没往里收**，收的只是
-     针尖那一小撮面积。 */
+     Such a corner can't be filleted (a fillet of radius r backs off r/tan(half-angle) along each
+     edge, which diverges as the half-angle goes to zero); instead we **add an arc tangent to both
+     edges**. The center sits at distance r from the end face (x = x0 + r); find the tangent point Q
+     along the top edge, and run the arc from the tangent point A on the end face to Q. Because the
+     center's x is exactly x0 + r, A is the leftmost point of the circle — the leftmost point of the
+     cap still lies on the line x0, **so the boundary doesn't move inward at all**; only the tiny
+     sliver at the needle tip is removed. */
   const seglen = (sg) => sg.reduce((a, _, i) => (i ? a + Math.hypot(sg[i][0] - sg[i - 1][0], sg[i][1] - sg[i - 1][1]) : 0), 0);
-  /** 曲线上第 i 点处的单位法线（屏幕坐标，y 朝下）。方向随遍历顺序翻转，所以调用方
-      要自己决定正负 —— 见 roundTip 里那次一劳永逸的定向。 */
+  /** Unit normal at point i of the curve (screen coords, y down). Its direction flips with the
+      traversal order, so the caller has to pick the sign — see the one-time orientation in roundTip. */
   const normalAt = (c, i) => {
     const a = c[Math.max(i - 1, 0)];
     const b = c[Math.min(i + 1, c.length - 1)];
     const L = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
     return [-(b[1] - a[1]) / L, (b[0] - a[0]) / L];
   };
-  /** 给上缘的起点端补一个与端面相切的圆头，返回新的上缘（含弧上采样点）。 */
+  /** Add a round cap tangent to the end face at the start of the top edge; returns the new top edge (arc samples included). */
   const roundTip = (c, r) => {
     const x0 = c[0][0];
     const k = Math.min(10, c.length - 1);
-    // 两件事一次定好，别靠切线在尖端的极限去猜（那里切线竖直，x 分量的正负没意义）：
-    //   sgn  —— 侧壁往哪一侧铺开（左尖角 +1，右尖角 -1），看曲线走向哪边就行
-    //   flip —— 法线要不要取反才指向侧壁内部（内部总在上缘下方，取 y > 0 的那个）
+    // Settle two things once, instead of guessing from the tangent's limit at the tip (the tangent
+    // is vertical there, so the sign of its x component is meaningless):
+    //   sgn  — which way the side wall extends (left tip +1, right tip -1); just see where the curve heads
+    //   flip — whether the normal must be negated to point into the wall (the interior is always
+    //          below the top edge, so take the one with y > 0)
     const sgn = Math.sign(c[k][0] - x0) || 1;
     const flip = normalAt(c, k)[1] < 0;
     const inw = (i) => {
       const n = normalAt(c, i);
       return flip ? [-n[0], -n[1]] : n;
     };
-    const f = (i) => sgn * (c[i][0] + r * inw(i)[0] - x0 - sgn * r); // 圆心横坐标是否已到 x0 + sgn·r
+    const f = (i) => sgn * (c[i][0] + r * inw(i)[0] - x0 - sgn * r); // has the center's x reached x0 + sgn·r yet
     let i = 1;
     while (i < c.length - 2 && f(i) < 0) i++;
-    if (f(i) < 0) return c; // 这一段太短，放弃圆头
-    const w = f(i) - f(i - 1) ? -f(i - 1) / (f(i) - f(i - 1)) : 0; // 在 i-1..i 之间插到切点
+    if (f(i) < 0) return c; // this stretch is too short; skip the cap
+    const w = f(i) - f(i - 1) ? -f(i - 1) / (f(i) - f(i - 1)) : 0; // interpolate the tangent point between i-1 and i
     const Q = [c[i - 1][0] + (c[i][0] - c[i - 1][0]) * w, c[i - 1][1] + (c[i][1] - c[i - 1][1]) * w];
     const nq = inw(i);
     const C = [Q[0] + r * nq[0], Q[1] + r * nq[1]];
-    const a0 = sgn > 0 ? Math.PI : 0; // A：圆在端面那一侧的极点，横坐标正好还是 x0
+    const a0 = sgn > 0 ? Math.PI : 0; // A: the circle's extreme point on the end-face side; its x is still exactly x0
     let d = Math.atan2(Q[1] - C[1], Q[0] - C[0]) - a0;
     while (d > Math.PI) d -= 2 * Math.PI;
     while (d < -Math.PI) d += 2 * Math.PI;
@@ -321,7 +361,7 @@ export function build(o = {}) {
     }
     return [...arc, ...c.slice(i)];
   };
-  /** 把首尾相接的若干段拼成闭合 path；rs[i] 是第 i 段末尾那个接缝的圆头半径，0 = 不倒。 */
+  /** Join end-to-end segments into a closed path; rs[i] is the cap radius of the joint at the end of segment i, 0 = none. */
   const joinSegs = (segs, rs) => {
     const P = (q) => `${n(q[0])},${n(q[1])}`;
     const lens = segs.map(seglen);
@@ -341,24 +381,28 @@ export function build(o = {}) {
     let upper = freeHead ? roundTip(top, TIP) : top;
     upper = freeTail ? roundTip(upper.slice().reverse(), TIP).reverse() : upper;
     const segs = [
-      upper, //                                        上缘（两端已带圆头）
-      [upper[upper.length - 1], bot[bot.length - 1]], // 尾端面
-      bot.slice().reverse(), //                        下缘，尾 → 头
-      [bot[0], upper[0]], //                           头端面
+      upper, //                                        top edge (both ends already capped)
+      [upper[upper.length - 1], bot[bot.length - 1]], // tail end face
+      bot.slice().reverse(), //                        bottom edge, tail → head
+      [bot[0], upper[0]], //                           head end face
     ];
-    /* 四个接缝的圆头半径，顺序跟 segs 对应：
-         [0] 上缘→尾端面 = 尾部尖角   自由端已由圆弧相切收好，再倒角就会把边往里啃
-         [1] 尾端面→下缘 = 尾部下角   实打实的直角，照常倒
-         [2] 下缘→头端面 = 头部下角   同上
-         [3] 头端面→上缘 = 头部尖角   同 [0]
-       这里 [2][3] 一度写反，尖角於是被 FIL 回退了 5px —— 边界「还是往里收」就是这么来的。 */
+    /* Cap radii of the four joints, in the same order as segs:
+         [0] top edge → tail end face    = tail tip           a free end is already closed by the
+                                                              tangent arc; filleting again would bite into the edge
+         [1] tail end face → bottom edge = tail lower corner  a genuine right angle, filleted as usual
+         [2] bottom edge → head end face = head lower corner  same as [1]
+         [3] head end face → top edge    = head tip           same as [0]
+       [2] and [3] were once swapped, so the tip got backed off by FIL = 5px — that is exactly where
+       "the boundary still moves inward" came from. */
     return joinSegs(segs, [freeTail ? 0 : FIL, FIL, FIL, freeHead ? 0 : FIL]);
   };
 
   const sq = (h) => [[-h, -h], [h, -h], [h, h], [-h, h]];
 
-  /* 井桁凹槽的开口：四道笔画（两竖两横）与正中那一格并成一个连通的多边形，边界二十八个角。
-     只写出四分之一，剩下的绕原点转 90° 生成 —— 四向对称由此保证，不靠对齐眼力。 */
+  /* Opening of the igeta grooves: the four strokes (two vertical, two horizontal) and the center cell
+     merge into one connected polygon with twenty-eight corners. Only a quarter is written out; the
+     rest is generated by rotating 90° about the origin — so four-fold symmetry is guaranteed rather
+     than left to eyeballed alignment. */
   const rot90 = ([x, y]) => [-y, x];
   const U = [];
   {
@@ -367,7 +411,7 @@ export function build(o = {}) {
   }
   const PIT = sq(A);
 
-  /* 烟：沿中轴线左右各偏移半个粗细，再用 Catmull-Rom 串成闭合曲线。 */
+  /* Smoke: offset the centerline by half the width to each side, then join into a closed Catmull-Rom curve. */
   const bez = (p0, p1, p2, p3, t) => {
     const u = 1 - t;
     return [0, 1].map((i) => u ** 3 * p0[i] + 3 * u * u * t * p1[i] + 3 * u * t * t * p2[i] + t ** 3 * p3[i]);
@@ -377,7 +421,8 @@ export function build(o = {}) {
     const s = Math.min(Math.floor(t * segs), segs - 1);
     return bez(spine[s * 3], spine[s * 3 + 1], spine[s * 3 + 2], spine[s * 3 + 3], t * segs - s);
   };
-  // 两端为 0，峰值落在约 40% 处（起笔胀得比收笔快，才像在上升）
+  // Zero at both ends, peaking at about 40% (it swells faster at the start than it tapers at the
+  // end, which is what makes it read as rising)
   const width = (t) => WMAX * Math.sin(Math.PI * t ** 0.75) ** 1.1;
   const smoothClosed = (pts) => {
     const m = pts.length;
@@ -404,43 +449,51 @@ export function build(o = {}) {
       Rt.push([CX + SCALE * (p[0] + nx * w), CY + SCALE * (p[1] + ny * w)]);
       L.push([CX + SCALE * (p[0] - nx * w), CY + SCALE * (p[1] - ny * w)]);
     }
-    // 两端粗细为 0，两侧在那里重合；去掉重合点才收得出真正的尖
+    // Both ends have zero width, so the two sides coincide there; dropping the duplicate points is
+    // what yields a true point
     return smoothClosed([...Rt.slice(1, -1), ...L.reverse().slice(0, -1)]);
   };
 
-  // 先把四条轮廓在平面里磨圆，之后所有投影、侧壁、遮挡都从这些折线来
+  // Round the four outlines in the plane first; all projections, side walls and occlusion below derive from these polylines
   const slabRing = roundPlan(sq(R), RS);
   const floorRing = roundPlan(sq(F), rf);
   const openRing = roundPlan(U, RG);
   const pitRing = roundPlan(PIT, RG);
-  const openD = face(openRing); //        井桁开口（z = 0）
-  const pitD = face(pitRing, -D1); //     火塘坑口（z = -D1）
+  const openD = face(openRing); //        igeta opening (z = 0)
+  const pitD = face(pitRing, -D1); //     hearth pit mouth (z = -D1)
 
 
-  // 画布跟 irori.svg 一致：1024 见方，坐标仍按 512 算（viewBox 缩放），render.mjs 才拍得满
+  // Same canvas as irori.svg: 1024 square with coordinates still in 512 (scaled by viewBox), so render.mjs captures it full-frame
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512" role="img" aria-label="囲炉裏">
   <defs>
     <clipPath id="open"><path d="${openD}"/></clipPath>
     <clipPath id="pit"><path d="${pitD}"/></clipPath>
   </defs>
 ${BG ? `\n  <rect id="bg" width="512" height="512" fill="#F4F0E6"/>\n` : ''}
-  <!-- 台面：顶面和侧壁同一个黑，立体感全靠缝隙。侧壁整体下沉 GAP，顶面与侧面之间
-       让出一道；侧壁又在最近那条棱上切开、左右各退 GAP/2（按 x-y 量，不按弧长 ——
-       见 trimDelta），近角上多一道竖缝。两道缝在直边处等宽，都是 GAP·cos30。
+  <!-- Slab: top face and side walls share one black; depth comes entirely from the gaps. The side
+       walls drop by GAP as a whole, opening a gap between top face and sides; they are also cut at
+       the nearest edge and backed off GAP/2 on each side (measured in x-y, not arc length; see
+       trimDelta), adding a vertical seam at the near corner. On straight edges both gaps are equally
+       wide: GAP·cos30.
 
-       下沉量刻意取成常数，也就是缝的**垂直距离**处处相等。试过另外两种：按切线补偿
-       让垂直于缝的宽度恒定，绕到左右两个尖角时补偿量会发散；再让它在尖角收到零，
-       侧壁上缘就跟顶面轮廓合拢了 —— 缝在尖上被焊死，比不均匀更难看。
-       常数下沉的代价只是近角那一小段缝宽出 15%（棱在那里转成水平），换来缝一路
-       等高地绕过两个尖角、干净地收口。 -->
+       The drop is deliberately constant, i.e. the gap's **vertical distance** is the same everywhere.
+       Two alternatives were tried. Compensating along the tangent to keep the width perpendicular to
+       the gap constant makes the compensation diverge around the left and right tips. Tapering it
+       to zero at the tips instead makes the side wall's top edge merge with the top-face outline:
+       the gap gets welded shut at the tips, which looks worse than an uneven width.
+       The only cost of a constant drop is that a short stretch of gap at the near corner is 15%
+       wider (the edge turns horizontal there); in exchange the gap wraps around both tips at a
+       constant height and ends cleanly. -->
   ${wallRuns(slabRing, true, true).map((r) => `<path d="${slabBand(runPts(slabRing, r, true), !r.head, !r.tail)}" fill="${INK}"/>`).join('\n  ')}
   <path d="${face(slabRing)}" fill="${INK}"/>
   <path d="${face(floorRing)}" fill="${floorFill}"/>
 
-  <!-- 井桁凹槽：开口内先整块铺槽底（开口下沉 D1），再把朝镜头的内壁盖到上缘 ——
-       没被槽底盖住的那一圈正好就是内壁，不用另算。火塘是槽底上又一个凹坑，同样
-       的办法再来一次。两层深度都只可能透过开口看见，所以不必逐面排序 ——
-       剪裁本身就是遮挡关系，圆角改了它也自己跟着走。 -->
+  <!-- Igeta grooves: inside the opening, first fill the groove floor in one piece (the opening sunk
+       by D1), then paint the camera-facing inner walls over it up to the top edge. The band the
+       floor leaves uncovered is exactly the inner wall, so nothing extra has to be computed. The
+       hearth is another pit in the groove floor, done the same way again. Both depth levels can only
+       be seen through the opening, so no per-face sorting is needed: the clipping itself is the
+       occlusion, and it follows along when the corner radii change. -->
   <g clip-path="url(#open)">
     <path d="${face(openRing, -D1)}" fill="${GROOVE}"/>
     ${wallRuns(openRing, false).map((r) => `<path d="${band(runPts(openRing, r), 0, D1)}" fill="${GWALL}"/>`).join('\n    ')}
@@ -450,14 +503,16 @@ ${BG ? `\n  <rect id="bg" width="512" height="512" fill="#F4F0E6"/>\n` : ''}
     </g>
   </g>
 
-  <!-- 烟画在最后：它从炉心升起，比炉缘最远那个角离镜头更近，本来就该盖住它 -->
+  <!-- Smoke is drawn last: it rises from the hearth's center and is closer to the camera than the
+       rim's farthest corner, so it rightly covers that corner -->
   <path d="${smoke()}" fill="${smokeFill}"/>
 </svg>
 `;
 }
 
-/* 圆润版：台面外圈 16（内圈自动取 16 - B = 4，炉缘因此在角上仍然等宽），
-   井桁和火塘 3。再大井桁的笔画端头就开始发胖，四笔的结构会糊掉。 */
+/* Rounded version: slab outline 16 (the inner radius automatically becomes 16 - B = 4, so the rim
+   keeps its width at the corners), igeta and hearth 3. Any larger and the igeta stroke ends start
+   to bulge and the four-stroke structure blurs. */
 export const ROUND = { RS: 16, RG: 3 };
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -1,12 +1,15 @@
-/* 键盘焦点与「正文以外也能滚」这两件事，都是为了对抗宿主的默认行为，跟写作本身无关，
-   所以从装配文件里拿出来单独放。两条都踩过坑，注释里写了是哪一条。 */
+/* Keyboard focus and "scrolling works outside the text too" both exist to fight the host's default
+   behavior and have nothing to do with writing itself, so they live apart from the assembly file.
+   Both have bitten us before; the comments say how. */
 import type { EditorView } from '@codemirror/view';
 import type { Glide } from '../features/glide';
 
-/** 装上守卫，返回「把焦点交还给正文」的那个函数 —— 目录点击和冒烟探针都要用它。 */
+/** Installs the guards and returns the "hand focus back to the text" function — TOC clicks and
+    the smoke probe both need it. */
 export function installFocusGuard(view: EditorView, glide: Glide): { focusEditor: () => void } {
-/* 滚轮：正文以外的地方（左边的目录栏空白、右边的缩略图、顶部状态栏）也要能滚动正文。
-   抽屉、目录列表、查找面板这些自己会滚的区域放行。 */
+/* Wheel: areas outside the text (the blank TOC rail on the left, the minimap on the right, the top
+   status bar) must scroll the text too. Regions that scroll themselves — drawer, TOC list, search
+   panel — are let through. */
 addEventListener(
   'wheel',
   (e) => {
@@ -21,11 +24,13 @@ addEventListener(
   { passive: false },
 );
 
-/* 键盘焦点：窗口一回到前台就把焦点交还给正文，否则快捷键要等用户先点一下才生效
-   （原生窗口刚起来时 webview 可能还不是第一响应者）。 */
-/** 把焦点交还给正文，但**不许动滚动位置**。
-    WebKit 在重新聚焦 contenteditable 时会把光标滚进视野 —— 于是「在抽屉里点一下」
-    就会把正文猛地拽回光标所在处。Chromium 不这么干，所以这条只能靠代码守住。 */
+/* Keyboard focus: as soon as the window comes back to the foreground, hand focus back to the text;
+   otherwise shortcuts only work after the user clicks once (right after the native window comes
+   up, the webview may not be first responder yet). */
+/** Hand focus back to the text, but **never move the scroll position**.
+    WebKit scrolls the caret into view when it refocuses a contenteditable — so "one click in the
+    drawer" would yank the text back to wherever the caret is. Chromium doesn't do this, so only
+    code can guard against it. */
 const focusEditor = () => {
   const top = view.scrollDOM.scrollTop;
   view.focus();
@@ -36,17 +41,20 @@ const focusEditor = () => {
 };
 
 const refocus = () => {
-  // 抽屉开着时不抢焦点：那会儿人在操作界面，不是在写字
+  // don't steal focus while the drawer is open: the person is working the UI then, not writing
   if (document.body.classList.contains('menuopen')) return;
   const el = document.activeElement as HTMLElement | null;
-  // 有人正在别的控件里打字（设置项、查找框、冲突对话框）就别抢焦点
+  // someone is typing in another control (a setting, the search box, the conflict dialog): don't
+  // steal focus
   if (el?.closest?.('input,textarea,select,button,.drawer,.cm-panels,.conflict')) return;
-  // 焦点在 body/html，或落在编辑器的外壳（滚动容器）上 → 交还给正文
+  // focus is on body/html, or on the editor's outer shell (the scroll container) → hand it back to
+  // the text
   if (!el || el === document.body || el === document.documentElement) return focusEditor();
   if (view.dom.contains(el) && !view.contentDOM.contains(el)) focusEditor();
 };
 addEventListener('focus', refocus);
-// 焦点离开正文却没有落到别的控件上（点了空白、原生窗口把焦点收走）→ 交还给正文
+// focus left the text without landing on another control (a click on blank space, the native
+// window taking focus away) → hand it back to the text
 addEventListener('focusout', (e) => {
   if ((e as FocusEvent).relatedTarget) return;
   setTimeout(refocus, 0);
@@ -56,7 +64,8 @@ document.addEventListener('visibilitychange', () => {
 });
 addEventListener('mousedown', (e) => {
   const t = e.target as HTMLElement | null;
-  // 在正文里按下 → 让路；在缩略图上按下不算，那里刚发起的就是一次滑动
+  // pressed inside the text → give way; pressing on the minimap doesn't count, since that press
+  // has just started a glide
   if (t?.closest?.('.cm-scroller')) glide.cancel();
   if (t?.closest?.('input,textarea,.drawer,.cm-panels,.mini,.conflict,.toc-inner')) return;
   setTimeout(refocus, 0);
