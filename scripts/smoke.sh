@@ -32,9 +32,12 @@ cat > "$doc" <<'MD'
 这是一段中文正文，含 **粗体**、`代码` 与 [链接](https://example.com)。
 
 > 引用一行
+
+9. 九
+10. 十
 MD
 # Append a long run of text so there is something to scroll (needed by the "refocus keeps the
-# scroll position" check). Blank line first, or these lines become a lazy continuation of the quote.
+# scroll position" check). Blank line first, so these lines stay out of the list above.
 echo "" >> "$doc"
 for i in $(seq 1 200); do echo "第 $i 行的正文内容，写点中文让行高接近真实情况。" >> "$doc"; done
 
@@ -99,6 +102,7 @@ const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 const need = [["host is Tauri", r.host === "tauri"], ["engine is the system WebView", r.engine === "WebKit"],
   ["file was read", (r.chars || 0) > 20], ["lines were rendered", (r.renderedLines || 0) >= 5],
   ["heading decoration", r.decorated.h1], ["quote decoration", r.decorated.quote], ["bold decoration", r.decorated.bold],
+  ["list numbers line up on the dot", r.listDots != null && Math.abs(r.listDots) <= 0.6],
   ["table of contents", (r.toc || 0) >= 1], ["minimap", (r.minimapRows || 0) >= 1],
   ["text clears the transparent title bar", process.platform !== "darwin" || (r.overlayTitlebar && r.toplineHeight >= 24)],
   ["refocusing the editor keeps the scroll position", r.focusKeepsScroll !== false],

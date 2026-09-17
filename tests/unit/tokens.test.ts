@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { decorateLine, imageLine, inlineMarks, lineHTML, quoteScan } from '../../src/editor/tokens';
+import { decorateLine, imageLine, inlineMarks, lineHTML, listItem, listRows, listScan, quoteScan, withListRow } from '../../src/editor/tokens';
 
 const classesAt = (text: string, i: number) =>
   inlineMarks(text)
@@ -96,6 +96,75 @@ describe('blockquote rail grouping', () => {
   it('a new block interrupts the rail', () => {
     const rails = quoteScan(['> 一', '# 标题']);
     expect(rails.map((r) => r.member)).toEqual([true, false]);
+  });
+});
+
+describe('lists', () => {
+  it('recognises bullets and numbers followed by a blank', () => {
+    expect(listItem('- a')).toMatchObject({ indent: '', marker: '-', gap: ' ', ordered: false });
+    expect(listItem('* a')?.marker).toBe('*');
+    expect(listItem('+ a')?.marker).toBe('+');
+    expect(listItem('  12. a')).toMatchObject({ indent: '  ', marker: '12.', ordered: true });
+    expect(listItem('3) a')?.ordered).toBe(true);
+    expect(listItem('- ')).not.toBeNull(); // an item just being typed
+  });
+
+  it('does not mistake other lines for items', () => {
+    for (const s of ['-a', '1.5 kg', '**粗体** 开头', '*斜体*', '---', '* * *', '- - -', '1234567890. a', '　　正文']) {
+      expect(listItem(s), s).toBeNull();
+    }
+  });
+
+  it('marks the indent and marker, and decorates the rest on its own', () => {
+    const d = decorateLine('  - 有 *斜体*');
+    expect(d.lineClass).toBe('li');
+    expect(d.marks.slice(0, 2)).toEqual([
+      { from: 0, to: 2, cls: 'lind' },
+      { from: 2, to: 4, cls: 'lmark' },
+    ]);
+    expect(d.marks.some((m) => m.cls === 'i' && m.from === 6)).toBe(true);
+    // the bullet star never pairs with a later star
+    expect(decorateLine('* a *b').marks.some((m) => m.cls === 'i')).toBe(false);
+    expect(decorateLine('10. a').marks[0]).toEqual({ from: 0, to: 4, cls: 'lnum' });
+  });
+
+  it('sizes every number box of a list by its longest number, so the dots line up', () => {
+    const rows = listScan(['9. a', '10. b', '11. c']);
+    expect(rows).toEqual([
+      { ind: 0, mark: 4 },
+      { ind: 0, mark: 4 },
+      { ind: 0, mark: 4 },
+    ]);
+    expect(listScan(['1. a', '2. b'])[0]).toEqual({ ind: 0, mark: 3 });
+  });
+
+  it('keeps nested lists and separate lists apart', () => {
+    const rows = listScan(['1. a', '   1. x', '   2. y', '10. b', '', '9. p', '', '段落', '1. q']);
+    expect(rows[1]).toEqual({ ind: 3, mark: 3 }); // the nested list has its own width
+    expect(rows[3]).toEqual({ ind: 0, mark: 4 });
+    expect(rows[5]).toEqual({ ind: 0, mark: 4 }); // a blank line does not end the list
+    expect(rows[8]).toEqual({ ind: 0, mark: 3 }); // a paragraph does
+    expect(rows[7]).toBeNull();
+  });
+
+  it('gives indented lines inside a list the indent box only', () => {
+    const rows = listScan(['- a', '  续行', '', '    还在', '段落', '  不在列表里']);
+    expect(rows.map((r) => r && r.ind)).toEqual([0, 2, null, 4, null, null]);
+    expect(rows[1]!.mark).toBe(0);
+    const { deco, style } = withListRow('  续行', decorateLine('  续行'), rows[1]);
+    expect(deco.lineClass).toBe('li');
+    expect(deco.marks[0]).toEqual({ from: 0, to: 2, cls: 'lind' });
+    expect(style).toBe('--li-ind:2;--li-mark:0');
+  });
+
+  it('counts a tab as reaching the next multiple of four columns', () => {
+    expect(listScan(['- a', '\t- b'])[1]).toEqual({ ind: 4, mark: 2 });
+  });
+
+  it('looks past the requested lines for the enclosing list', () => {
+    const doc = ['段落', '8. a', '9. b', '10. c', '段落'];
+    const rows = listRows((n) => doc[n - 1], doc.length, 3, 3);
+    expect(rows).toEqual([{ ind: 0, mark: 4 }]);
   });
 });
 

@@ -1,4 +1,4 @@
-/* Editing behavior: CJK typography, undo/redo, ⌘B/⌘I, whole-line copy/cut, IME composition. */
+/* Editing behavior: list continuation, undo/redo, ⌘B/⌘I, whole-line copy/cut, IME composition. */
 import { MOD, caret, docText, setCaret, setDoc, sleep } from '../harness.mjs';
 
 const mod = async (page, key, fn = 'press') => {
@@ -9,23 +9,35 @@ const mod = async (page, key, fn = 'press') => {
 
 export const cases = [
   {
-    id: 'B-20',
-    name: 'Two half-width spaces typed at paragraph start → two full-width spaces',
+    id: 'B-75',
+    name: 'Enter in a list item opens the next item; on an empty item it steps out, then ends the list',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': '' }, startup: '/n/a.md' });
       await page.click('.cm-content');
-      await page.keyboard.type('  正文');
-      t.eq('replaced with U+3000', await docText(page), '　　正文');
-    },
-  },
-  {
-    id: 'B-21',
-    name: 'Never replace spaces inside a code fence (code indentation is left alone)',
-    async run(t, ctx) {
-      const page = await ctx.open({ files: { '/n/a.md': '```js\n\n```' }, startup: '/n/a.md' });
-      await setCaret(page, 6); // start of the second line
-      await page.keyboard.type('  code');
-      t.eq('half-width spaces kept', await docText(page), '```js\n  code\n```');
+      await page.keyboard.type('- 一');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('二');
+      t.eq('bullet continues', await docText(page), '- 一\n- 二');
+
+      await setDoc(page, '9. 九');
+      await setCaret(page, 4);
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('十');
+      t.eq('number counts up', await docText(page), '9. 九\n10. 十');
+
+      await setDoc(page, '1. 甲乙');
+      await setCaret(page, 4); // between 甲 and 乙
+      await page.keyboard.press('Enter');
+      t.eq('split at the caret', await docText(page), '1. 甲\n2. 乙');
+
+      await setDoc(page, '1. 父\n   - 子\n   - ');
+      await setCaret(page, 17);
+      await page.keyboard.press('Enter');
+      t.eq('empty nested item becomes the next sibling of its parent', await docText(page), '1. 父\n   - 子\n2. ');
+      await page.keyboard.press('Enter');
+      t.eq('empty top-level item: the marker goes', await docText(page), '1. 父\n   - 子\n');
+      await page.keyboard.press('Enter');
+      t.eq('outside a list Enter is a plain newline', await docText(page), '1. 父\n   - 子\n\n');
     },
   },
   {

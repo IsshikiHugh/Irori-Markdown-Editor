@@ -7,7 +7,7 @@
    same cost as a short one while staying pixel-aligned with the real text. */
 
 import type { EditorView } from '@codemirror/view';
-import { decorateLine, imageLine, lineHTML, quoteScan } from '../editor/tokens';
+import { decorateLine, imageLine, lineHTML, listRows, quoteScan, withListRow } from '../editor/tokens';
 import type { Glide } from './glide';
 
 const PAD = 10;
@@ -101,6 +101,7 @@ export function createMinimap(
     const texts: string[] = [];
     for (let n = scanFrom; n <= toLine; n++) texts.push(doc.line(n).text);
     const rails = quoteScan(texts);
+    const lists = listRows((n) => doc.line(n).text, doc.lines, fromLine, toLine);
 
     const parts: string[] = [];
     let rows = 0;
@@ -108,7 +109,7 @@ export function createMinimap(
       const line = doc.line(n);
       const text = line.text;
       const rail = rails[n - scanFrom];
-      const deco = decorateLine(text);
+      const { deco, style } = withListRow(text, decorateLine(text), lists[n - fromLine]);
       const cls = ['ln'];
       if (deco.lineClass) cls.push(deco.lineClass);
       if (rail?.member) cls.push('quote');
@@ -125,7 +126,7 @@ export function createMinimap(
       } else {
         inner = lineHTML(text, deco);
       }
-      parts.push(`<div class="${cls.join(' ')}" style="top:${y.toFixed(2)}px">${inner}</div>`);
+      parts.push(`<div class="${cls.join(' ')}" style="top:${y.toFixed(2)}px;${style}">${inner}</div>`);
     }
     content.innerHTML = parts.join('');
   }

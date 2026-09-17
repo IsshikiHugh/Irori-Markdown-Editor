@@ -1,7 +1,7 @@
 /* Irori — ported verbatim in spirit from the blog editor's app/style.css.
    Everything blog-specific (slug row, publish button, tag chips, article list) is gone;
    everything that shapes the WRITING experience is kept byte-for-byte where it could be.
-   The row classes (.ln, .h1…, .quote, .tok, .code, .lnk …) are shared by three renderers:
+   The row classes (.ln, .h1…, .quote, .li, .tok, .code, .lnk …) are shared by three renderers:
    the CodeMirror line decorations, the minimap clone, and the unit-test HTML renderer. */
 :root{--paper:#f7f3ec;--ink:#383838;--sub:#666;--line:#e7dfd2;--accent:#A27B5C;--accent-soft:#f1ebe6;--rail:#fbf8f2;--draft:#b07d1a;--live:#4a7a52;--link:#886a53;--tok:#c3b7a4;--ftop:20%;--fbot:80%;
   /* a locally installed LXGW WenKai goes by several family names (GB Fusion / Mono / …):
@@ -80,6 +80,8 @@ body.overlay-titlebar .mini{--mini-top:32px;}
    without this the "> " marker is pulled outside the line box and disappears */
 .cm-editor .cm-line.ln.quote{padding:0 2px 0 30px;text-indent:-18px;word-break:normal;}
 .cm-editor .cm-line.ln.quote.qlazy{text-indent:0;}
+/* list rows: same story — the hanging indent (see .ln.li below) must beat the 2px padding rule */
+.cm-editor .cm-line.ln.li{padding-left:calc(var(--li-w) + 2px);text-indent:calc(var(--li-w) * -1);}
 /* during IME composition the native caret comes back: the input method anchors its
    candidate window to it, and a transparent caret breaks that (intermittently, esp. at
    line start). The custom caret stays hidden while composing. */
@@ -117,6 +119,16 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .ln.quote{color:#666;border-left:3px solid #dac9bc;padding-left:30px;text-indent:-18px;border-radius:0;overflow-wrap:break-word;word-break:normal;}
 .ln.quote.qlazy{text-indent:0;}
 .ln.quote>.tok:first-child{white-space:pre;}
+/* Lists. The leading run of an item sits on a column grid (tokens.ts: listScan): the indent box is
+   --li-ind cells wide and the marker box --li-mark cells, so the text after the marker starts at the
+   same x on the first row and on every wrapped row (hanging indent), a nested item starts right under
+   its parent's text, and numbers are right-aligned so "9." and "10." share the dot. One cell is
+   wider than any digit, so a marker never overflows its box. */
+.ln.li{--lc:.6em;--li-w:calc((var(--li-ind,0) + var(--li-mark,0)) * var(--lc));padding-left:calc(var(--li-w) + 2px);text-indent:calc(var(--li-w) * -1);}
+.lind,.lmark,.lnum{display:inline-block;text-indent:0;white-space:pre;tab-size:4;}
+.lind{min-width:calc(var(--li-ind,0) * var(--lc));}
+.lmark,.lnum{min-width:calc(var(--li-mark,0) * var(--lc));text-align:right;color:var(--accent);}
+.lmark{font-weight:700;}
 .ln.morecomment{color:#b3a892;font-size:13px;letter-spacing:.5px;}
 .tok{color:var(--tok);}
 .b{font-weight:700;} .i{font-style:italic;}

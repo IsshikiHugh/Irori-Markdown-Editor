@@ -13,8 +13,8 @@ import { defaultKeymap, history, historyKeymap, indentWithTab, redo } from '@cod
 import { search, searchKeymap, openSearchPanel, closeSearchPanel } from '@codemirror/search';
 import { sourceDecoration, setAssetResolver } from './decorations';
 import type { AssetResolver } from './decorations';
-import { cjkIndent } from './cjk-indent';
 import { imageNavKeymap } from './image-nav';
+import { continueList } from './lists';
 
 export type EditorHooks = {
   onChange: (doc: string) => void;
@@ -147,7 +147,6 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
         search({ top: false }),
         zh,
         sourceDecoration,
-        cjkIndent,
         imeClass,
         imagePaste,
         caretLife,
@@ -159,6 +158,7 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
           { key: 'Mod-b', preventDefault: true, run: wrapWith('**') },
           { key: 'Mod-i', preventDefault: true, run: wrapWith('*') },
           { key: 'Mod-f', preventDefault: true, run: openSearchPanel },
+          { key: 'Enter', run: continueList },
           // historyKeymap only treats Ctrl-Y as redo on Windows; add ⌘⇧Z / Ctrl-Shift-Z so all three
           // platforms share one shortcut
           { key: 'Mod-Shift-z', preventDefault: true, run: redo },

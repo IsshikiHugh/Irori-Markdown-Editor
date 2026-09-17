@@ -272,4 +272,95 @@ export const cases = [
       t.eq('text was not rewritten', await docText(page), '## 新标题 **粗**');
     },
   },
+  {
+    id: 'B-74',
+    name: 'Lists: markers are dressed, numbers right-align on the dot, wrapped rows and nested items hang under the text',
+    async run(t, ctx) {
+      const long = '很长'.repeat(40);
+      const doc = [
+        '段落',
+        '',
+        '- 第一项',
+        `- ${long}`,
+        '  - 子项',
+        '    续行',
+        '',
+        '9. 九',
+        `10. ${long}`,
+        '11. 十一',
+      ].join('\n');
+      const page = await ctx.open({ files: { '/n/a.md': doc }, startup: '/n/a.md' });
+      await sleep(300);
+      const g = await page.evaluate(() => {
+        const lines = [...document.querySelectorAll('.cm-content .cm-line')];
+        const box = (el) => el.getBoundingClientRect();
+        // x of a character inside a line (its text node, by offset)
+        const charRects = (line, from, to) => {
+          const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+          let pos = 0;
+          const r = document.createRange();
+          let started = false;
+          for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+            const len = n.textContent.length;
+            if (!started && from < pos + len) { r.setStart(n, from - pos); started = true; }
+            if (started && to <= pos + len) { r.setEnd(n, to - pos); break; }
+            pos += len;
+          }
+          return [...r.getClientRects()];
+        };
+        const textStart = (i, at) => charRects(lines[i], at, at + 1)[0].left;
+        const wrapped = (i, at) => {
+          const rects = charRects(lines[i], at, lines[i].textContent.length);
+          return rects[rects.length - 1].left;
+        };
+        const mark = lines[2].querySelector('.lmark');
+        return {
+          cls: lines.map((l) => [...l.classList]),
+          texts: lines.map((l) => l.textContent),
+          markColor: getComputedStyle(mark).color,
+          markText: mark.textContent,
+          plainLeft: textStart(0, 0),
+          bulletText: textStart(2, 2),
+          bulletWrap: wrapped(3, 2),
+          bulletTextRows: charRects(lines[3], 2, lines[3].textContent.length).length > 1,
+          childBox: box(lines[4].querySelector('.lind')).right,
+          childText: textStart(4, 4),
+          contText: textStart(5, 4),
+          dot9: charRects(lines[7], 1, 2)[0].right,
+          dot10: charRects(lines[8], 2, 3)[0].right,
+          dot11: charRects(lines[9], 2, 3)[0].right,
+          text9: textStart(7, 3),
+          text10: textStart(8, 4),
+          wrap10: wrapped(8, 4),
+          mini: document.querySelectorAll('.mini .content .ln.li').length,
+        };
+      });
+      t.eq('editor text === source', await docText(page), doc);
+      t.ok('item rows are list rows', [2, 3, 4, 7, 8, 9].every((i) => g.cls[i].includes('li')), JSON.stringify(g.cls));
+      t.ok('the continuation line belongs to the list', g.cls[5].includes('li'), g.cls[5]);
+      t.ok('a paragraph is not', !g.cls[0].includes('li'), g.cls[0]);
+      t.eq('marker keeps its source (marker + blank)', g.markText, '- ');
+      t.eq('marker in the accent color', g.markColor, 'rgb(162, 123, 92)');
+      t.ok('item text sits right of the paragraph edge', g.bulletText > g.plainLeft + 8, `${g.bulletText} vs ${g.plainLeft}`);
+      t.ok('long item really wraps', g.bulletTextRows, '');
+      t.near('wrapped row hangs under the item text', g.bulletWrap, g.bulletText, 0.6);
+      t.near('nested item starts where its parent text starts', g.childBox, g.bulletText, 0.6);
+      t.near('indented continuation lines up with the nested item text', g.contText, g.childText, 0.6);
+      t.near('"9." and "10." share the dot', g.dot9, g.dot10, 0.6);
+      t.near('"10." and "11." share the dot', g.dot11, g.dot10, 0.6);
+      t.near('text after one- and two-digit numbers starts at the same x', g.text9, g.text10, 0.6);
+      t.near('wrapped row of a numbered item hangs under its text', g.wrap10, g.text10, 0.6);
+      t.ok('minimap mirrors the list rows', g.mini >= 6, String(g.mini));
+
+      // clicking the wrapped row puts the caret inside the item, not on a neighbour
+      const at = await page.evaluate(() => {
+        const v = window.__irori.view;
+        const line = v.state.doc.line(9);
+        const end = v.coordsAtPos(line.to);
+        const pos = v.posAtCoords({ x: end.left - 4, y: (end.top + end.bottom) / 2 });
+        return { pos, from: line.from, to: line.to };
+      });
+      t.ok('a click on the wrapped row lands in that item', at.pos > at.from + 4 && at.pos <= at.to, JSON.stringify(at));
+    },
+  },
 ];

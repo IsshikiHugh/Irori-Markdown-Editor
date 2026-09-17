@@ -83,6 +83,19 @@ if (smoke) {
         bold: !!document.querySelector('.cm-content .b'),
         image: !!document.querySelector('.cm-content .imgrow'),
       },
+      // right edge of the dot of "9." minus that of "10." — 0 when numbers right-align in WebKit too
+      listDots: (() => {
+        const dots = [...document.querySelectorAll('.cm-content .lnum')].map((el) => {
+          const node = el.firstChild;
+          const text = node?.textContent ?? '';
+          if (!node || text.indexOf('.') < 0) return null;
+          const r = document.createRange();
+          r.setStart(node, text.indexOf('.'));
+          r.setEnd(node, text.indexOf('.') + 1);
+          return r.getBoundingClientRect().right;
+        });
+        return dots.length >= 2 && dots[0] != null && dots[1] != null ? dots[0] - dots[1] : null;
+      })(),
       // source text and class names of the first three lines: proves "what's rendered is those
       // lines of the file", checkable without a screenshot
       firstLines: [...document.querySelectorAll('.cm-content .cm-line')].slice(0, 3).map((l) => ({

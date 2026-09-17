@@ -18,7 +18,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view
 import type { DecorationSet, ViewUpdate } from '@codemirror/view';
 import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import type { EditorState, Extension } from '@codemirror/state';
-import { decorateLine, imageLine, isQuoteReset, quoteStep, QUOTE_START } from './tokens';
+import { decorateLine, imageLine, isQuoteReset, listRows, quoteStep, QUOTE_START, withListRow } from './tokens';
 import type { QuoteState } from './tokens';
 
 /** How an image's relative `src` becomes something the webview can load. */
@@ -205,6 +205,8 @@ function build(view: EditorView): DecorationSet {
     let lineNo = doc.lineAt(from).number;
     const lastNo = doc.lineAt(to).number;
     let st = quoteStateAt(state, lineNo);
+    const firstNo = lineNo;
+    const lists = listRows((n) => doc.line(n).text, doc.lines, firstNo, lastNo);
     for (; lineNo <= lastNo; lineNo++) {
       const line = doc.line(lineNo);
       const text = line.text;
@@ -213,7 +215,7 @@ function build(view: EditorView): DecorationSet {
 
       const img = imageLine(text);
       const asImage = !!img && !live.has(lineNo);
-      const deco = decorateLine(text);
+      const { deco, style } = withListRow(text, decorateLine(text), lists[lineNo - firstNo]);
       const cls = ['ln'];
       if (deco.lineClass) cls.push(deco.lineClass);
       if (hit.member) cls.push('quote');
@@ -221,7 +223,7 @@ function build(view: EditorView): DecorationSet {
       if (asImage) cls.push('imgrow');
       if (lineNo === anchorLine) cls.push('aline');
       if (hovered === line.from) cls.push('mhover');
-      b.add(line.from, line.from, Decoration.line({ class: cls.join(' ') }));
+      b.add(line.from, line.from, Decoration.line({ class: cls.join(' '), attributes: style ? { style } : undefined }));
 
       if (asImage) continue; // the picture (a block decoration) comes from imageField
       for (const m of deco.marks) {

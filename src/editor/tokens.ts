@@ -127,7 +127,114 @@ export function decorateLine(text: string): LineDeco {
     // lines and is decided by quoteStep() below.
     return { lineClass: '', marks: [{ from: 0, to: lead, cls: 'tok' }, ...inlineMarks(m[2], lead)] };
   }
+  const li = listItem(text);
+  if (li) {
+    const ind = li.indent.length;
+    const lead = ind + li.marker.length + li.gap.length;
+    const marks: Mark[] = ind ? [{ from: 0, to: ind, cls: 'lind' }] : [];
+    marks.push({ from: ind, to: lead, cls: li.ordered ? 'lnum' : 'lmark' });
+    // the rest is decorated on its own, so a "* " bullet can never pair up with a later "*"
+    return { lineClass: 'li', marks: [...marks, ...inlineMarks(text.slice(lead), lead)] };
+  }
   return { lineClass: '', marks: inlineMarks(text) };
+}
+
+/* ---------- lists ----------
+   A list item's leading run (indent · marker · gap) is laid out on a column grid: each
+   source column is one fixed-width cell (--lc in style.css), so the text after the marker
+   starts at the same x on every row of the item, and a nested item — indented to its
+   parent's text column in the source — starts exactly where the parent's text does.
+   Ordered markers are right-aligned inside a box as wide as the LONGEST number of their
+   list, so "9." and "10." line up on the dot. That width depends on the lines around,
+   which is why it comes from listScan() rather than decorateLine(). */
+
+export type ListItem = { indent: string; marker: string; gap: string; ordered: boolean };
+
+const RE_LIST = /^([ \t]*)([-*+]|\d{1,9}[.)])([ \t]+)/;
+const RE_HR = /^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+
+export function listItem(text: string): ListItem | null {
+  const m = RE_LIST.exec(text);
+  if (!m || RE_HR.test(text)) return null;
+  return { indent: m[1], marker: m[2], gap: m[3], ordered: m[2].length > 1 };
+}
+
+/** Source columns of a run of blanks starting at column `at` (a tab advances to the next multiple of 4). */
+function columns(ws: string, at = 0): number {
+  let c = at;
+  for (const ch of ws) c = ch === '\t' ? c + 4 - (c % 4) : c + 1;
+  return c - at;
+}
+
+/** Grid cells of a list row: `ind` for the indent box, `mark` for the marker box (0 on a continuation line). */
+export type ListRow = { ind: number; mark: number };
+
+/** A line that closes every open list: text starting in column 0 that is not an item. */
+export const isListReset = (src: string) => /^[^ \t]/.test(src) && !listItem(src);
+
+/** Grid layout for a run of lines. Blank lines keep a list open; indented lines inside a
+    list are continuations and get the indent box only. */
+export function listScan(lines: string[]): (ListRow | null)[] {
+  const out: (ListRow | null)[] = lines.map(() => null);
+  // sibling groups currently open, outermost first; `digits` is the widest number seen
+  type Group = { indent: number; key: string; digits: number };
+  const stack: Group[] = [];
+  const items: { i: number; li: ListItem; g: Group; ind: number }[] = [];
+  lines.forEach((text, i) => {
+    const li = listItem(text);
+    if (li) {
+      const ind = columns(li.indent);
+      while (stack.length && stack[stack.length - 1].indent > ind) stack.pop();
+      const key = li.ordered ? 'o' + li.marker.slice(-1) : 'b';
+      let top = stack[stack.length - 1];
+      if (!top || top.indent !== ind || top.key !== key) {
+        if (top && top.indent === ind) stack.pop();
+        top = { indent: ind, key, digits: 0 };
+        stack.push(top);
+      }
+      if (li.ordered) top.digits = Math.max(top.digits, li.marker.length - 1);
+      items.push({ i, li, g: top, ind });
+    } else if (text.trim() === '') {
+      // blank: a list survives it
+    } else if (stack.length && /^[ \t]/.test(text)) {
+      const ws = /^[ \t]*/.exec(text)![0];
+      const ind = columns(ws);
+      while (stack.length > 1 && stack[stack.length - 1].indent > ind) stack.pop();
+      out[i] = { ind, mark: 0 };
+    } else {
+      stack.length = 0;
+    }
+  });
+  for (const { i, li, g, ind } of items) {
+    const head = li.ordered ? g.digits + 1 : 1;
+    const gap = columns(li.gap, ind + li.marker.length);
+    out[i] = { ind, mark: head + gap };
+  }
+  return out;
+}
+
+/** Grid layout for lines `from..to` (1-based) of a document, scanning out to the enclosing list's edges. */
+export function listRows(line: (n: number) => string, lines: number, from: number, to: number): (ListRow | null)[] {
+  let a = from;
+  while (a > 1 && !isListReset(line(a - 1))) a--;
+  let z = to;
+  while (z < lines && !isListReset(line(z + 1))) z++;
+  const texts: string[] = [];
+  for (let n = a; n <= z; n++) texts.push(line(n));
+  return listScan(texts).slice(from - a, to - a + 1);
+}
+
+/** Fold a list row into a line's decoration: the line class, the indent box of a
+    continuation line, and the inline style carrying the grid widths. */
+export function withListRow(text: string, deco: LineDeco, row: ListRow | null | undefined): { deco: LineDeco; style: string } {
+  if (!row) return { deco, style: '' };
+  const style = `--li-ind:${row.ind};--li-mark:${row.mark}`;
+  if (row.mark > 0) return { deco, style };
+  const ws = /^[ \t]*/.exec(text)![0].length;
+  return {
+    deco: { lineClass: deco.lineClass ? deco.lineClass + ' li' : 'li', marks: [{ from: 0, to: ws, cls: 'lind' }, ...deco.marks] },
+    style,
+  };
 }
 
 /* ---------- blockquote rail grouping ----------
