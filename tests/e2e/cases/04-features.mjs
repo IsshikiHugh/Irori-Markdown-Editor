@@ -125,11 +125,23 @@ export const cases = [
       const big = ['# 顶部', '', ...Array.from({ length: 1200 }, (_, i) => (i % 40 === 0 ? `## 第 ${i / 40 + 1} 节` : `第 ${i} 行的正文内容`))].join('\n');
       const page = await ctx.open({ files: { '/n/big.md': big }, startup: '/n/big.md' });
       await sleep(400);
+      // Measure once the glide has actually landed instead of sleeping a fixed time: a long jump
+      // alone takes 1400ms and the landing re-check may add more legs, so on a slow machine a
+      // 2000ms sleep lands mid-way through the last leg (seen on CI: 12px short)
+      await page.evaluate(() => {
+        window.__settle = async () => {
+          const g = window.__irori.glide;
+          const t0 = performance.now();
+          await new Promise((r) => setTimeout(r, 100));
+          while (g.running() && performance.now() - t0 < 8000) await new Promise((r) => setTimeout(r, 50));
+          await new Promise((r) => setTimeout(r, 100));
+        };
+      });
       // 直接要求滑到文末：出发时 CodeMirror 对后面的高度还是估算的
       const r = await page.evaluate(async () => {
         const el = window.__irori.view.scrollDOM;
         window.__irori.glide.to(() => el.scrollHeight);
-        await new Promise((r) => setTimeout(r, 2000));
+        await window.__settle();
         return { top: Math.round(el.scrollTop), max: Math.round(el.scrollHeight - el.clientHeight) };
       });
       t.ok('确实滚到了底（差 < 2px）', Math.abs(r.top - r.max) <= 2, `${r.top} / ${r.max}`);
@@ -141,7 +153,7 @@ export const cases = [
         await new Promise((r) => setTimeout(r, 200));
         const links = [...document.querySelectorAll('#toc .toc-link')];
         links[links.length - 1].click();
-        await new Promise((r) => setTimeout(r, 2000));
+        await window.__settle();
         const v = window.__irori.view;
         let pos = 0;
         for (let n = v.state.doc.lines; n >= 1; n--) {
