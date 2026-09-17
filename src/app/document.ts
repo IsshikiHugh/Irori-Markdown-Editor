@@ -1,4 +1,4 @@
-/* The document session: one window, one file (see the language section of CONTEXT.md).
+/* The document session: one window, one file.
 
    Four rules live here, and they are the reason this file exists at all:
    1. autosave writes only to a file that already has a path; a blank page (unnamed buffer)

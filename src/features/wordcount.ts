@@ -4,7 +4,7 @@
    characters of the rendered HTML) so its number would match the published page. That
    target no longer exists, so this counts what a person means: Chinese by character,
    English by word. This is the one deliberate, pre-approved deviation from the old
-   editor's behaviour (see docs/acceptance/deviations.md). */
+   editor's behaviour. */
 
 const FENCE = /^\s*(```|~~~)/;
 

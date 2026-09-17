@@ -3,8 +3,8 @@
 
    Everything that used to be a patch (custom caret, IME timing, undo stack, line
    copy/cut, arrow keys stepping into an image) is now either a CodeMirror primitive or
-   a thin extension on top of one. That is the whole point of ADR-0002: the fragile,
-   engine-dependent work happens in a core that is tested across engines, not here. */
+   a thin extension on top of one. That is the whole point of building on CodeMirror: the
+   fragile, engine-dependent work happens in a core that is tested across engines, not here. */
 
 import { EditorView, drawSelection, dropCursor, keymap, rectangularSelection } from '@codemirror/view';
 import { EditorState, EditorSelection, Compartment } from '@codemirror/state';

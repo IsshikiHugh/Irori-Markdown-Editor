@@ -1,8 +1,8 @@
 //! The Tauri shell.
 //!
 //! Deliberately thin: file IO, dialogs, windows, settings. Everything the writing
-//! experience is made of lives in the web layer, so swapping this shell out (ADR-0001's
-//! escape hatch if Linux/WebKitGTK ever becomes untenable) does not touch the editor.
+//! experience is made of lives in the web layer, so swapping this shell out (the escape
+//! hatch if Linux/WebKitGTK ever becomes untenable) does not touch the editor.
 
 use std::fs;
 use std::path::{Path, PathBuf};

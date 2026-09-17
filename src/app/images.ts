@@ -1,4 +1,4 @@
-/* Where a pasted image goes. CONTEXT.md pins v1 to exactly one strategy — a folder
+/* Where a pasted image goes. v1 is pinned to exactly one strategy — a folder
    beside the document, named after it — and forbids building a plugin seam for the
    others. So: one function, one rule, easy to change later, nothing pre-built. */
 

@@ -1,6 +1,6 @@
 /* Pure path helpers. Kept free of any host API so they can be unit-tested, and so the
    one place that decides where a pasted image lands (`sidecarDir`) is a single function —
-   CONTEXT.md requires exactly that, and forbids building an abstraction around it. */
+   by design, with no abstraction built around it. */
 
 export const SEP = '/';
 

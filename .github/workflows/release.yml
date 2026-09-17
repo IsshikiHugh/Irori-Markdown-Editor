@@ -17,7 +17,7 @@ name: Release
 # installers are in the Artifacts section at the bottom of that run's page (Windows ships
 # nsis/*-setup.exe and msi/*.msi — either one works), kept for 90 days.
 #
-# Note: only macOS has been verified by hand (ADR-0001). The Windows / Linux builds are "compiles
+# Note: only macOS has been verified by hand. The Windows / Linux builds are "compiles
 # and packages", not "verified" — don't treat them as supported platforms until someone has run
 # the acceptance checklist on them.
 

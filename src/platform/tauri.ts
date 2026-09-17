@@ -1,6 +1,6 @@
 /* The Tauri host. Every call is a single `invoke` into the Rust shell — no filesystem
    or dialog plugin is used from JavaScript, so this file stays a thin, replaceable
-   adapter (ADR-0001's escape hatch: swapping the shell must not touch the app). */
+   adapter (the escape hatch: swapping the shell must not touch the app). */
 
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';

@@ -109,7 +109,7 @@ let bad = 0;
 for (const [n, ok] of need) { console.log(`   ${ok ? "✓" : "✗"} ${n}`); if (!ok) bad++; }
 // These two are informational, not assertions: the font depends on what is installed, the menu on the host
 console.log(`   ${r.font ? "✓" : "!"} font: ${r.font || "none of the configured families is installed; falls back to the system default"}`);
-console.log(`   ${r.menu ? "✓" : "!"} system menu ${r.menu ? "present (⌘C/⌘V have something to hang off)" : "missing — clipboard shortcuts need a manual check, see deviations.md D-41"}`);
+console.log(`   ${r.menu ? "✓" : "!"} system menu ${r.menu ? "present (⌘C/⌘V have something to hang off)" : "missing — clipboard shortcuts need a manual check"}`);
 process.exit(bad ? 1 : 0);
 ' "$out"
 echo "› smoke test passed"

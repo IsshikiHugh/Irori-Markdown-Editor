@@ -2,7 +2,7 @@
 
    Nothing above this layer may know whether it is running inside Tauri or a plain
    browser. That is what lets every behaviour test drive the real application code in
-   headless Chromium, and what keeps ADR-0001's "no platform-specific patches in the
+   headless Chromium, and what keeps the rule "no platform-specific patches in the
    writing core" honest. */
 
 export type Settings = {

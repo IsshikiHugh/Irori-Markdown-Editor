@@ -6,7 +6,7 @@
  *
  * Cases live in tests/e2e/cases/*.mjs, one file per behaviour area, each exporting
  * `cases: [{ id, name, run(t, ctx) }]`. The id is the line in the acceptance checklist
- * (docs/acceptance/behavior-checklist.md) the case proves.
+ * the case proves.
  */
 import fs from 'node:fs';
 import path from 'node:path';

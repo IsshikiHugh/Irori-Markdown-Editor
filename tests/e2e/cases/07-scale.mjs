@@ -1,4 +1,4 @@
-/* Performance targets (CONTEXT.md constraints): a single 100k-character document stays smooth; there is no cap
+/* Performance targets: a single 100k-character document stays smooth; there is no cap
    on the number of images, and images scrolled out of the viewport must be unloaded, not kept in memory. */
 import { sleep } from '../harness.mjs';
 

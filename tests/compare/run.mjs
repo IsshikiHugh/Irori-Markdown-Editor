@@ -1,4 +1,4 @@
-/* Comparison run (ADR-0002 step 3 · round 1): new editor vs legacy editor on the same Chrome engine.
+/* Comparison run: new editor vs legacy editor on the same Chrome engine.
  *
  * This is not a unit test but evidence that the experience matches: same post, same set of geometry and
  * color probes, measured on both sides and then compared.
@@ -186,7 +186,7 @@ console.log(`  ✓ ${same.length} matching: ${same.map((x) => x.k).join(', ')}`)
 if (diff.length) {
   console.log(`\n  ✗ ${diff.length} differing:`);
   for (const d of diff) console.log(`     ${d.k}\n        old ${d.a}\n        new ${d.b}`);
-  console.log('\n  Each one must either be fixed or recorded in docs/acceptance/deviations.md and approved.');
+  console.log('\n  Each one must either be fixed or recorded as a deliberate deviation and approved.');
 }
 if (SHOTS) console.log(`\n  Screenshots: ${OUT}/legacy.png · ${OUT}/irori.png`);
 process.exit(diff.length ? 1 : 0);

@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   # The writing experience: types, pure logic, and the behaviour suite that defines
-  # "the experience has not regressed" (docs/acceptance/behavior-checklist.md).
+  # "the experience has not regressed".
   web:
     name: Frontend · types / unit / behaviour
     runs-on: ubuntu-latest
@@ -42,7 +42,7 @@ jobs:
           path: docs/acceptance/report.md
           if-no-files-found: ignore
 
-  # The shell. macOS is the only platform verified by hand (ADR-0001), but the code is
+  # The shell. macOS is the only platform verified by hand, but the code is
   # compiled on all three from day one so the three-platform goal stays honest.
   shell:
     name: Shell · ${{ matrix.os }}
@@ -78,7 +78,7 @@ jobs:
       - name: cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
-      # The smoke test only runs on macOS — the one platform v1 commits to verifying (ADR-0001).
+      # The smoke test only runs on macOS — the one platform v1 commits to verifying.
       # It needs a real window session, so it may fail without failing the whole pipeline.
       - name: Smoke test (system WebView)
         if: matrix.os == 'macos-latest'

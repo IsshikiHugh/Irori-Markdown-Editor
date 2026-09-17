@@ -1,8 +1,8 @@
 /* The left-hand table of contents: h1–h3, click to scroll, current section highlighted.
 
    Note what is NOT special-cased here: the document's first `#` heading. It is a
-   heading like any other, because in this editor the title IS that line (see the
-   language section of CONTEXT.md) — no detached title field, no exclusion from the outline. */
+   heading like any other, because in this editor the title IS that line — no detached
+   title field, no exclusion from the outline. */
 
 import type { EditorView } from '@codemirror/view';
 import type { Glide } from './glide';
