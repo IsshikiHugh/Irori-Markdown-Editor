@@ -1,10 +1,10 @@
 /* 编辑行为：中文排版、撤销重做、⌘B/⌘I、整行复制剪切、输入法组字。 */
-import { caret, docText, setCaret, setDoc, sleep } from '../harness.mjs';
+import { MOD, caret, docText, setCaret, setDoc, sleep } from '../harness.mjs';
 
 const mod = async (page, key, fn = 'press') => {
-  await page.keyboard.down('Meta');
+  await page.keyboard.down(MOD);
   await page.keyboard[fn](key);
-  await page.keyboard.up('Meta');
+  await page.keyboard.up(MOD);
 };
 
 export const cases = [
@@ -41,11 +41,13 @@ export const cases = [
       await mod(page, 'z');
       const once = await docText(page);
       t.ok('撤销回到上一段输入', once === '起点一二三' || once === '起点', once);
-      await page.keyboard.down('Meta');
+      await page.keyboard.down(MOD);
       await page.keyboard.down('Shift');
-      await page.keyboard.press('z');
+      // 按物理键 KeyZ：按住 Shift 时 e.key 才是真实键盘给的 'Z'。按 'z' 的话 Linux / Windows 上
+      // 出来的是 Ctrl + 'z'，CodeMirror 会把它当成撤销而不是重做
+      await page.keyboard.press('KeyZ');
       await page.keyboard.up('Shift');
-      await page.keyboard.up('Meta');
+      await page.keyboard.up(MOD);
       t.eq('重做', await docText(page), '起点一二三四五六');
     },
   },

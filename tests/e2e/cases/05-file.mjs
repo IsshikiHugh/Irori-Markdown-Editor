@@ -1,11 +1,11 @@
 /* 文件生命周期：打开、自动保存、白纸、外部改动、图片落盘。 */
-import { docText, sleep } from '../harness.mjs';
+import { MOD, docText, sleep } from '../harness.mjs';
 
 const read = (page, path) => page.evaluate((p) => window.__irori.platform.files.get(p)?.text ?? null, path);
 const mod = async (page, key) => {
-  await page.keyboard.down('Meta');
+  await page.keyboard.down(MOD);
   await page.keyboard.press(key);
-  await page.keyboard.up('Meta');
+  await page.keyboard.up(MOD);
 };
 
 export const cases = [
@@ -346,9 +346,9 @@ export const cases = [
       await page.click('.cm-content');
       await page.keyboard.press('End');
       await page.keyboard.type('改动');
-      await page.keyboard.down('Meta');
+      await page.keyboard.down(MOD);
       await page.keyboard.press('w');
-      await page.keyboard.up('Meta');
+      await page.keyboard.up(MOD);
       await sleep(300);
       t.eq('向宿主请求了关闭', await page.evaluate(() => window.__irori.platform.closeRequests), 1);
       t.eq('关闭前把改动冲进了磁盘', await read(page, '/n/a.md'), '原文改动');

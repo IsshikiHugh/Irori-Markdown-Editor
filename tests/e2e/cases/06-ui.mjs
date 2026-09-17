@@ -1,7 +1,7 @@
 /* 抽屉、快捷键层、字体设置、以及「v1 没有菜单栏」这件事。 */
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, sleep } from '../harness.mjs';
+import { MOD, ROOT, sleep } from '../harness.mjs';
 
 export const cases = [
   {
@@ -25,9 +25,9 @@ export const cases = [
       await sleep(350);
       t.ok('遮罩点击关闭', !(await page.evaluate(() => document.body.classList.contains('menuopen'))), '');
       await page.click('.cm-content');
-      await page.keyboard.down('Meta');
+      await page.keyboard.down(MOD);
       await page.keyboard.press('\\');
-      await page.keyboard.up('Meta');
+      await page.keyboard.up(MOD);
       await sleep(300);
       t.ok('⌘\\ 打开', await page.evaluate(() => document.body.classList.contains('menuopen')), '');
       await page.keyboard.press('Escape');
@@ -128,9 +128,9 @@ export const cases = [
       await page.click('#hair');
       await sleep(320);
       await page.focus('#fontin');
-      await page.keyboard.down('Meta');
+      await page.keyboard.down(MOD);
       await page.keyboard.press('s');
-      await page.keyboard.up('Meta');
+      await page.keyboard.up(MOD);
       await sleep(250);
       const saved = await page.evaluate(() => window.__irori.platform.files.get('/n/a.md')?.text);
       t.eq('⌘S 仍然保存', saved, '原文改动');
@@ -138,9 +138,9 @@ export const cases = [
       await sleep(300);
       t.ok('Esc 仍然关抽屉', !(await page.evaluate(() => document.body.classList.contains('menuopen'))), '');
       await page.focus('#fontin');
-      await page.keyboard.down('Meta');
+      await page.keyboard.down(MOD);
       await page.keyboard.press('\\');
-      await page.keyboard.up('Meta');
+      await page.keyboard.up(MOD);
       await sleep(300);
       t.ok('⌘\\ 仍然开抽屉', await page.evaluate(() => document.body.classList.contains('menuopen')), '');
       const savedOnce = await page.evaluate(() => window.__irori.doc.dirty);

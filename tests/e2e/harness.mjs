@@ -149,6 +149,11 @@ export const setDoc = (page, text) =>
     v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: t } });
   }, text);
 
+/** 「⌘」在测试里按哪个键：macOS 上是 Meta，Linux / Windows 上是 Ctrl —— 和 CodeMirror 的 `Mod-` 一致。
+    浏览器与测试跑在同一台机器上，所以看宿主平台就行。一直按 Meta 的话，CI（Linux）上
+    编辑器自己的快捷键（⌘Z / ⌘B / ⌘F）一个都不会触发；窗口层的 ⌘S / ⌘\ 两个键都认，才没暴露。 */
+export const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
+
 export const caret = (page) => page.evaluate(() => window.__irori.view.state.selection.main.head);
 
 export const setCaret = (page, pos) =>

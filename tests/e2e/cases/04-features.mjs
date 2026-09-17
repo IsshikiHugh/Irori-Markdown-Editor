@@ -1,5 +1,5 @@
 /* 目录、缩略图、专注模式、字数统计、查找。 */
-import { caretToLine, setCaret, sleep } from '../harness.mjs';
+import { MOD, caretToLine, setCaret, sleep } from '../harness.mjs';
 
 const long = (n) => Array.from({ length: n }, (_, i) => (i % 12 === 0 ? `## 小节 ${i / 12 + 1}` : `第 ${i} 行的正文内容`)).join('\n');
 const DOC = ['# 大标题', '', '开头段落', '', long(120)].join('\n');
@@ -436,9 +436,9 @@ export const cases = [
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': DOC }, startup: '/n/a.md' });
       await page.click('.cm-content');
-      await page.keyboard.down('Meta');
+      await page.keyboard.down(MOD);
       await page.keyboard.press('f');
-      await page.keyboard.up('Meta');
+      await page.keyboard.up(MOD);
       await sleep(150);
       const open = await page.evaluate(() => !!document.querySelector('.cm-search'));
       t.ok('查找面板出现', open, '');
@@ -576,7 +576,11 @@ export const cases = [
       await sleep(300);
       await caretToLine(page, 80);
       await page.keyboard.press('ArrowDown');
-      await sleep(1400); // 跨这么远的滑动最长 900ms
+      // 等滑动真正落地，而不是睡一个固定时长：这么远的一跳本身就要 GLIDE_MAX_FAR（1400ms），
+      // 还可能补一程落点复核 —— 以前睡 1400ms，机器一慢就恰好量在收尾段的起点（差 1.2 行）
+      await page.waitForFunction(() => window.__irori.glide.running(), { timeout: 1000 }).catch(() => {});
+      await page.waitForFunction(() => !window.__irori.glide.running(), { timeout: 5000 });
+      await sleep(150);
       const inBand = await page.evaluate(() => {
         const v = window.__irori.view;
         const c = v.coordsAtPos(v.state.selection.main.head);

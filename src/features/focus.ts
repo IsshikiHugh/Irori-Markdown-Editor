@@ -151,16 +151,32 @@ export function createFocus(
       }
       return;
     }
+    // 光标位置在出发时取定：途中光标又动了，由上面的 pendingBand 在落地后另起一程，
+    // 而不是让这一程半路改追新的光标（那样会沿用出发时选的边，贴错边）
     const head = view.state.selection.main.head;
-    // 光标所在的行没渲染时 coordsAtPos 会返回 null（比如刚把光标移到很远的地方），
-    // 那就退回用 CodeMirror 的高度表算，否则这种情况下永远不会把它带回带内
-    const block = view.lineBlockAt(head);
-    const fallback = { top: view.documentTop + block.top, bottom: view.documentTop + block.top + block.height };
-    const c = view.coordsAtPos(head) ?? fallback;
-    const { top, bottom } = bandPx();
+    const caret = () => {
+      // 途中正文被删短了也不能越界（每帧都在读，抛一次异常滑动就卡住了）
+      const pos = Math.min(head, view.state.doc.length);
+      // 光标所在的行没渲染时 coordsAtPos 会返回 null（比如刚把光标移到很远的地方），
+      // 那就退回用 CodeMirror 的高度表算，否则这种情况下永远不会把它带回带内
+      const block = view.lineBlockAt(pos);
+      const fallback = { top: view.documentTop + block.top, bottom: view.documentTop + block.top + block.height };
+      return view.coordsAtPos(pos) ?? fallback;
+    };
+    const c = caret();
+    const band = bandPx();
+    if (c.top >= band.top && c.bottom <= band.bottom) return;
+    // 目标交给滑动器每帧重新求，而不是按出发时的坐标定死：远处那些行此刻的高度只是估算，
+    // 滚过去的路上才被实测 —— 定死的话，估算差多少，光标就落在带外多少（字体不同的平台上能差出几十像素）。
+    // 贴哪条边在出发时定好，途中不换，免得光标一进带就改目标、来回拉扯。
+    const below = c.bottom > band.bottom;
+    const edge = () => {
+      const now = caret();
+      const b = bandPx();
+      return below ? now.bottom - b.bottom : now.top - b.top;
+    };
     // 滑动的速率曲线与时长见 features/glide.ts（渐入渐出、按跨越行数递进）
-    if (c.top < top) glide.by(c.top - top);
-    else if (c.bottom > bottom) glide.by(c.bottom - bottom);
+    glide.to(() => view.scrollDOM.scrollTop + edge());
   }
   function apply() {
     const a = +els.topR.value;

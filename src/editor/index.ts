@@ -9,7 +9,7 @@
 import { EditorView, drawSelection, dropCursor, keymap, rectangularSelection } from '@codemirror/view';
 import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { defaultKeymap, history, historyKeymap, indentWithTab, redo } from '@codemirror/commands';
 import { search, searchKeymap, openSearchPanel, closeSearchPanel } from '@codemirror/search';
 import { sourceDecoration, setAssetResolver } from './decorations';
 import type { AssetResolver } from './decorations';
@@ -157,6 +157,8 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
           { key: 'Mod-b', preventDefault: true, run: wrapWith('**') },
           { key: 'Mod-i', preventDefault: true, run: wrapWith('*') },
           { key: 'Mod-f', preventDefault: true, run: openSearchPanel },
+          // historyKeymap 在 Windows 上只把 Ctrl-Y 当重做；补上 ⌘⇧Z / Ctrl-Shift-Z，三个平台一个按法
+          { key: 'Mod-Shift-z', preventDefault: true, run: redo },
           {
             key: 'Escape',
             run: (v) => {
