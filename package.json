@@ -1,0 +1,39 @@
+{
+  "name": "irori",
+  "version": "0.1.4",
+  "private": true,
+  "type": "module",
+  "description": "A lightweight standalone markdown editor — source-decorated writing, one window one document.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && npm run test:unit && npm run test:e2e",
+    "test:unit": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "node tests/e2e/run.mjs",
+    "dev:app": "tauri dev",
+    "build:app": "tauri build",
+    "tauri": "tauri",
+    "test:all": "./scripts/test.sh",
+    "fmt:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml",
+    "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^26.5.1",
+    "jsdom": "^27.0.1",
+    "puppeteer-core": "^24.43.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.3.6",
+    "vitest": "^3.2.7"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.4",
+    "@codemirror/view": "^6.43.11",
+    "@tauri-apps/api": "^2.11.1"
+  }
+}

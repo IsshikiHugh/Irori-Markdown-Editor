@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The writing experience: types, pure logic, and the 57-case behaviour suite that
+  # defines "体验没有退化" (docs/acceptance/behavior-checklist.md).
+  web:
+    name: 前端 · 类型 / 单元 / 行为
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: 类型检查
+        run: npm run typecheck
+      - name: 单元测试
+        run: npm run test:unit
+      - name: 构建
+        run: npx vite build
+      - name: 行为测试（headless Chromium）
+        run: npm run test:e2e -- --report
+        env:
+          # ubuntu-latest ships Chrome; harness.mjs also auto-discovers Playwright caches
+          IRORI_CHROME: /usr/bin/google-chrome
+      - name: 上传行为对照报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: behavior-report
+          path: docs/acceptance/report.md
+          if-no-files-found: ignore
+
+  # The shell. macOS is the only platform verified by hand (ADR-0001), but the code is
+  # compiled on all three from day one so the three-platform goal stays honest.
+  shell:
+    name: 外壳 · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Linux 系统依赖（WebKitGTK）
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - name: 前端产物（tauri 编译需要 dist/）
+        run: npx vite build
+      - name: rustfmt
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: cargo check
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      # 真机冒烟只在 macOS 上做 —— 那是 v1 唯一承诺验收的平台（ADR-0001）。
+      # 需要一个真实的窗口会话，所以允许失败而不拖垮整条流水线。
+      - name: 真机冒烟（系统 WebView）
+        if: matrix.os == 'macos-latest'
+        continue-on-error: true
+        run: |
+          npx tauri build --debug --bundles app
+          ./scripts/smoke.sh

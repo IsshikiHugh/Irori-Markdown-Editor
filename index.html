@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Irori</title>
+<link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <!-- left: table of contents (h1~h3), hidden on narrow windows -->
+  <aside class="post-toc" id="ptoc"><div class="title"><span>目录</span></div><div class="toc-inner"><ul class="toc" id="toc"></ul></div></aside>
+
+  <div class="stage" id="stage">
+    <!-- 顶部整条都是窗口拖拽区（macOS 上标题栏是透明的，红绿灯浮在这上面）。
+         它在编辑器之外：正文滚动、专注模式的渐隐都盖不到它。 -->
+    <div class="topline" id="topline" data-tauri-drag-region>
+      <div class="topline-inner" data-tauri-drag-region>
+        <!-- 文件名前的那颗点就是保存状态：红 = unsaved，绿 = saved（hover 有英文提示） -->
+        <span class="st" id="filechip" data-state="saved" title="saved" data-tauri-drag-region><span class="d" data-tauri-drag-region></span><span id="filename" data-tauri-drag-region>未命名</span></span>
+      </div>
+    </div>
+    <div class="sheet" id="sheet">
+      <div class="body" id="body"></div>
+    </div>
+  </div>
+
+  <aside class="mini" id="mini"><div class="content" id="miniContent" aria-hidden="true"></div><div class="vp" id="vp"></div></aside>
+  <div class="hair" id="hair" title="打开侧边栏 · ⌘\"></div>
+  <div class="fade" id="fade"></div>
+
+  <div class="scrim" id="scrim"></div>
+  <aside class="drawer">
+    <div class="rhead"><span class="t">当前文档</span><span class="x" id="dclose">✕</span></div>
+
+    <div class="g"><div class="glabel">文件</div><div class="mono" id="pathv">未命名</div></div>
+    <div class="g"><div class="glabel">字数</div><div class="mono" id="wcv">—</div></div>
+
+    <hr class="divider"><div class="secttitle">视图</div>
+    <div class="g">
+      <div class="fitem"><span style="font-weight:600">专注模式</span><div class="fseg" id="fseg"><i data-on="0" class="on">关</i><i data-on="1">开</i></div></div>
+      <div id="frange">
+        <div class="fadjust" id="fadjust"><span>专注模式配置</span><span class="fcaret" id="fcaret">▸</span></div>
+        <div id="fpanel">
+          <div class="frow" style="margin-top:4px"><span>聚焦范围</span></div>
+          <div class="dual">
+            <div class="dtrack"></div><div class="dfill" id="fFill"></div>
+            <input type="range" id="ftopR" min="0" max="100" value="20">
+            <input type="range" id="fbotR" min="0" max="100" value="80">
+          </div>
+          <div class="frow" style="margin-top:14px"><span>渐隐曲线</span><span style="flex:1"></span><span class="curvereset" id="curvereset">重置</span></div>
+          <svg class="curve" id="curve" viewBox="0 0 240 96" preserveAspectRatio="none">
+            <rect class="curvebg" x="0" y="0" width="240" height="96"></rect>
+            <polyline class="curvearm" id="cpoly"></polyline>
+            <path class="curveline" id="curvepath"></path>
+            <circle class="curvept" id="ch1" r="6"></circle>
+            <circle class="curvept mid" id="ch2" r="6"></circle>
+            <circle class="curvept" id="ch3" r="6"></circle>
+          </svg>
+          <div class="curvehint">拖动三个控制点（含中间点）：调整专注区边缘由清晰到淡出的快慢</div>
+        </div>
+      </div>
+    </div>
+
+    <hr class="divider"><div class="secttitle">设置</div>
+    <div class="g">
+      <div class="fitem"><span>自动保存</span><div class="fseg" id="aseg"><i data-on="0">关</i><i data-on="1" class="on">开</i></div></div>
+      <div class="frow" id="arow"><span class="k">间隔</span><input class="numin" id="aint" type="number" min="100" max="60000" step="100"><span class="unit">毫秒</span></div>
+      <div class="frow"><span class="k">字体</span><input class="txtin" id="fontin" spellcheck="false" autocomplete="off"></div>
+      <div class="curvehint">字体取自本机已安装的字体，逗号分隔即为回退顺序。</div>
+    </div>
+
+    <div class="spacer-fill"></div>
+    <div class="shortcuts">
+      <div><b>⌘S</b> 保存 · <b>⌘N</b> 新窗口 · <b>⌘O</b> 打开</div>
+      <div><b>⌘\</b> 抽屉 · <b>⌘F</b> 查找 · <b>⌘B/I</b> 粗体/斜体</div>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast"></div>
+  <div class="conflict" id="conflict">
+    <div class="cbox">
+      <div class="ctitle">文件在编辑器之外被改动了</div>
+      <div class="ctext" id="ctext"></div>
+      <div class="cbtns">
+        <button class="cbtn" id="ckeep">保留我正在编辑的</button>
+        <button class="cbtn primary" id="cload">用磁盘上的</button>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

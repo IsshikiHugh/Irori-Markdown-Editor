@@ -1,0 +1,225 @@
+/* Irori — ported verbatim in spirit from the blog editor's app/style.css.
+   Everything blog-specific (slug row, publish button, tag chips, article list) is gone;
+   everything that shapes the WRITING experience is kept byte-for-byte where it could be.
+   The row classes (.ln, .h1…, .quote, .tok, .code, .lnk …) are shared by three renderers:
+   the CodeMirror line decorations, the minimap clone, and the unit-test HTML renderer. */
+:root{--paper:#f7f3ec;--ink:#383838;--sub:#666;--line:#e7dfd2;--accent:#A27B5C;--accent-soft:#f1ebe6;--rail:#fbf8f2;--draft:#b07d1a;--live:#4a7a52;--link:#886a53;--tok:#c3b7a4;--ftop:20%;--fbot:80%;
+  /* 本机已安装的霞鹜文楷有好几种族名（GB Fusion / Mono / …），逐个回退，最后落到系统中文字体 */
+  --font-body:"LXGW WenKai GB Fusion","LXGW WenKai GB","LXGW WenKai Mono","LXGW WenKai","霞鹜文楷","PingFang SC","Microsoft YaHei",Arial,sans-serif;}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+/* no native scrollbar — the minimap viewport box is the scroll indicator */
+html{scrollbar-width:none;-ms-overflow-style:none;} html::-webkit-scrollbar,body::-webkit-scrollbar{width:0;height:0;display:none;}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);overflow:hidden;}
+::selection{background:#E3D9CC;} ::-moz-selection{background:#E3D9CC;}
+.stage{height:100vh;padding:0 120px 0 20px;display:flex;flex-direction:column;}
+/* 顶部标题栏：整条横贯窗口、整条可拖拽，且**不属于编辑器** ——
+   正文滚动不会滚到它下面，专注模式的渐隐也盖不住它（渐隐层挂在编辑器里面）。 */
+.topline{width:100%;flex:none;padding:18px 24px 10px;font-family:var(--font-body);font-size:13px;color:var(--sub);position:relative;z-index:6;-webkit-app-region:drag;}
+.topline-inner{max-width:700px;width:100%;margin:0 auto;display:flex;align-items:center;gap:10px;}
+.topline .st{display:flex;align-items:center;gap:6px;color:var(--draft);} .topline .st .d{width:7px;height:7px;border-radius:50%;background:var(--draft);}
+.topline .st{color:var(--sub);}
+.topline .spacer{flex:1;} .topline .mono{font-family:ui-monospace,Menlo,monospace;}
+/* 保存状态就是文件名前面那颗点：红=未保存，琥珀=正在写盘，绿=已保存（文字在 title 里） */
+.topline .st .d{transition:background .2s;}
+.topline .st[data-state="dirty"] .d{background:#c0563f;}
+.topline .st[data-state="saving"] .d{background:var(--accent);}
+.topline .st[data-state="saved"] .d{background:var(--live);}
+/* 透明标题栏（macOS）：顶栏就是红绿灯那一行（28px），文件名居中在里面。
+   负外边距抵掉舞台的左右内边距 → 横贯窗口，左缘留白和缩略图顶端也都能拖；
+   内边距左 80 / 右 180：让开红绿灯，且左右差 100px 与舞台（20/120）同轴 ——
+   文件名对着文字列与卷首花饰的中线，而不是整个窗口的中线（差着缩略图那一截）。长文件名省略号截断。
+   z-index 9：压过缩略图（8），让给遮罩与抽屉（10/11）—— 抽屉开着时它的 ✕ 不会被挡住。 */
+body.overlay-titlebar .topline{margin:0 -120px 0 -20px;width:auto;height:28px;padding:0 180px 0 80px;z-index:9;}
+body.overlay-titlebar .topline-inner{max-width:none;height:100%;justify-content:center;}
+body.overlay-titlebar .topline .st{min-width:0;}
+body.overlay-titlebar #filename{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* 缩略图的选框让到顶栏下面：28px 标题栏 + 4px（minimap.ts 读 --mini-top） */
+body.overlay-titlebar .mini{--mini-top:32px;}
+.topline[data-tauri-drag-region]{cursor:default;user-select:none;}
+/* 书写区占满整个舞台，文字列的宽度由 .cm-content 自己限制 —— 这样滚轮在正文两侧的
+   空白上也能滚动（滚动容器就是整片区域），而不是只有悬停在那 700px 文字上才有效 */
+.sheet{width:100%;max-width:none;margin:0;padding:0;display:flex;flex-direction:column;flex:1;min-height:0;}
+.body{flex:1;min-height:0;}
+
+/* ---- CodeMirror host: the editor IS the scroller (window never scrolls) ---- */
+.cm-editor{height:100%;background:transparent;}
+.cm-editor.cm-focused{outline:none;}
+.cm-scroller{overflow-y:auto;overflow-x:hidden;font-family:var(--font-body);line-height:2.05;scrollbar-width:none;}
+.cm-scroller::-webkit-scrollbar{width:0;height:0;display:none;}
+/* CodeMirror injects its own stylesheet at runtime, and its rules have the same
+   specificity as a bare class — so every geometry rule that must win is scoped to
+   `.cm-editor`. Getting this wrong costs 4px of line width, which is enough to change
+   where a paragraph wraps (caught by the side-by-side comparison against the old editor). */
+/* 内容盒 = 文字列本身（652px）。CodeMirror 画选区时按整个内容盒的宽度画，
+   所以这里多一分内边距，跨行选区就会比行高亮宽出一圈。 */
+.cm-editor .cm-content{max-width:652px;margin:0 auto;padding:44px 0 85vh;caret-color:transparent;}
+.cm-editor .cm-line{padding:0;}
+/* 卷首花饰：告诉你「这里是文本的最开头」。两根向中间收拢的发丝，托着一颗空心菱形 ——
+   和目录里「当前节」那颗 ◆ 是同一个语汇。画在内容盒顶部的留白里（伪元素），不占行、不改任何几何，
+   跟着正文一起滚走；专注模式把顶部留白撑大时，经 --pad-top 跟着第一行下移。 */
+.cm-editor .cm-content{position:relative;--pad-top:44px;}
+.cm-editor .cm-content::before,.cm-editor .cm-content::after{content:"";position:absolute;pointer-events:none;}
+.cm-editor .cm-content::before{left:calc(50% - 130px);width:260px;top:calc(var(--pad-top) - 24px);height:1px;
+  background:linear-gradient(to right,rgba(195,183,164,0) 0,rgba(195,183,164,.9) 42%,rgba(195,183,164,0) 46.5%,rgba(195,183,164,0) 53.5%,rgba(195,183,164,.9) 58%,rgba(195,183,164,0) 100%);}
+.cm-editor .cm-content::after{left:calc(50% - 3px);top:calc(var(--pad-top) - 27px);width:6px;height:6px;border:1px solid rgba(162,123,92,.65);transform:rotate(45deg);}
+.cm-editor .cm-line.ln{padding:0 2px;overflow-wrap:break-word;}
+/* the quote rail's hanging indent must beat the rule above, not the other way round:
+   without this the "> " marker is pulled outside the line box and disappears */
+.cm-editor .cm-line.ln.quote{padding:0 2px 0 30px;text-indent:-18px;word-break:normal;}
+.cm-editor .cm-line.ln.quote.qlazy{text-indent:0;}
+/* during IME composition the native caret comes back: the input method anchors its
+   candidate window to it, and a transparent caret breaks that (intermittently, esp. at
+   line start). The custom caret stays hidden while composing. */
+.cm-editor.ime .cm-content{caret-color:var(--accent);}
+.cm-editor.ime .cm-cursor{display:none!important;}
+/* custom text caret: CodeMirror draws it (drawSelection), we give it the soft accent bar
+   and the smooth breathing fade the native caret could never have. */
+/* CodeMirror 的光标本体是一条 1.2px 的黑色左边框；我们画的是 2px 的暖褐色块。
+   不把那条边框去干净，就会看见一深一浅两条。CM 的样式是运行时注入的、与裸类同权重，
+   所以这里既提权到 .cm-editor，也留着 !important。 */
+.cm-editor .cm-cursor,.cm-editor .cm-dropCursor{border:none!important;width:2px;border-radius:1px;background:var(--accent);}
+.cm-focused .cm-cursor{animation:caretfade 1.15s ease-in-out infinite;}
+.cm-focused.caretmove .cm-cursor{animation:none;opacity:1;}
+/* 渐出（18%→50%）与渐入（50%→82%）对称，两头各留一段实心停顿；
+   ease-in-out 作用在每一段上，所以明暗都是柔和过渡，不是硬切。 */
+@keyframes caretfade{0%,18%{opacity:1;}50%{opacity:0;}82%,100%{opacity:1;}}
+/* 选区由 CodeMirror 绘制，而不是浏览器原生：原生选区每一个折行都停在该行最后一个字上，
+   右缘参差不齐；CodeMirror 画的是规整的矩形（宽度 = 内容盒 = 文字列）。
+   两者同时上色会叠成两层，所以编辑器内把原生的关掉。 */
+.cm-editor .cm-selectionBackground{background:#E3D9CC!important;}
+.cm-editor .cm-content ::selection{background:transparent!important;}
+.cm-editor .cm-line::selection{background:transparent!important;}
+
+/* ---- source rows (identical to the blog editor) ---- */
+.ln{font-size:19px;line-height:2.05;color:#6D5D59;outline:none;white-space:pre-wrap;word-break:break-word;padding:0 2px;border-radius:4px;background-color:transparent;transition:background-color .05s ease-in;}
+.ln.mhover{background-color:rgba(162,123,92,.04);transition:background-color .02s ease-out;}
+.ln.aline{background-color:rgba(162,123,92,.08);transition:background-color .02s ease-out;}
+.ln.h1{font-size:30px;font-weight:700;line-height:1.5;}
+.ln.h2{font-size:24px;font-weight:700;line-height:1.6;}
+.ln.h3{font-size:20px;font-weight:700;line-height:1.7;}
+.ln.h4,.ln.h5,.ln.h6{font-weight:700;}
+.ln.quote{color:#666;border-left:3px solid #dac9bc;padding-left:30px;text-indent:-18px;border-radius:0;overflow-wrap:break-word;word-break:normal;}
+.ln.quote.qlazy{text-indent:0;}
+.ln.quote>.tok:first-child{white-space:pre;}
+.ln.morecomment{color:#b3a892;font-size:13px;letter-spacing:.5px;}
+.tok{color:var(--tok);}
+.b{font-weight:700;} .i{font-style:italic;}
+.code{font-family:ui-monospace,Menlo,monospace;font-size:.88em;background:#f2ede6;border-radius:4px;padding:0 3px;}
+.lnk{color:var(--link);} .url{color:#b3a892;font-family:ui-monospace,Menlo,monospace;font-size:.88em;}
+
+/* ---- image lines: rendered at natural size, source revealed on hover ---- */
+.imgrow{cursor:pointer;}
+.imgwrap{position:relative;display:inline-block;max-width:100%;margin:8px 0;line-height:0;}
+.imgwrap img{max-width:100%;height:auto;display:block;border-radius:2px;}
+.imgsrc{position:absolute;left:0;bottom:0;max-width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.4;color:#fff;background:rgba(40,32,24,.72);padding:3px 8px;border-radius:0 6px 0 6px;opacity:0;transition:opacity .14s;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.imgwrap:hover .imgsrc{opacity:1;}
+.imgmiss{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#b3452e;background:rgba(179,69,46,.08);border:1px dashed rgba(179,69,46,.4);border-radius:6px;padding:4px 10px;line-height:1.4;}
+
+/* ---- left TOC (Nlvi-theme style, from the blog editor) ---- */
+.post-toc{position:fixed;left:0;top:50%;transform:translate(0,-50%);width:210px;padding:0 26px;z-index:6;font-family:var(--font-body);transition:transform .34s cubic-bezier(.2,.7,.2,1),opacity .3s ease;}
+.post-toc .title{position:relative;text-align:center;font-weight:700;font-size:14px;opacity:.9;padding:6px 0;margin-bottom:10px;color:var(--ink);letter-spacing:2px;}
+.post-toc .title:after{content:'';position:absolute;left:30%;right:30%;bottom:0;height:1px;background:var(--accent);}
+.toc-inner{opacity:1;max-height:64vh;overflow:auto;}
+.toc{list-style:none;margin:0;padding:0;} .toc-item{margin:1px 0;}
+.toc-link{display:block;text-decoration:none;color:#777;font-size:13px;padding:5px 6px;border-radius:6px;word-break:break-all;transition:color .15s,background .15s;cursor:pointer;}
+.toc-link:hover{color:var(--accent);background:rgba(162,123,92,.06);}
+.toc-link.lvl1{padding-left:6px;font-weight:600;color:#5f574c;}
+.toc-link.lvl2{padding-left:20px;}
+.toc-link.lvl3{padding-left:36px;font-size:12px;color:#9a9086;}
+.toc-link.active{color:var(--accent)!important;font-weight:700;} .toc-link.active:before{content:'◆';font-size:9px;margin-left:-13px;margin-right:6px;vertical-align:2px;}
+@media (max-width:1180px){ .post-toc{opacity:0;transform:translate(-28px,-50%);pointer-events:none;} }
+
+/* ---- right minimap ---- */
+.mini{user-select:none;-webkit-user-select:none;position:fixed;right:0;top:0;bottom:0;width:112px;border-left:1px solid var(--line);background:#faf6f0;overflow:hidden;z-index:8;}
+.mini .content{position:absolute;top:10px;left:10px;transform-origin:top left;pointer-events:none;color:#8a8178;font-size:19px;line-height:2.05;}
+.mini .content .ln{position:absolute;left:0;right:0;}
+.mini .content img{max-width:100%;height:auto;} .mini .content .imgsrc,.mini .content .imgmiss{display:none;}
+.mini.noscroll .vp,.mini.noscroll .vp:active{cursor:default;background:rgba(162,123,92,.12);}
+.mini .vp{position:absolute;left:0;right:0;background:rgba(162,123,92,.2);border:none;cursor:grab;} .mini .vp:active{cursor:grabbing;background:rgba(162,123,92,.28);}
+
+/* ---- focus mode ---- */
+/* 专注模式的渐隐层挂在编辑器内部：
+   - z-index 100 在正文之上、在 CodeMirror 光标层（150）之下 → 光标永远看得见；
+   - 它的盒子就是编辑器本身 → 顶部标题栏、目录、缩略图都不受影响，
+     而且渐隐的百分比与聚焦带的百分比算在同一个坐标系里（以前一个按窗口、一个按编辑器，差着顶栏那一截）。 */
+/* isolation:isolate 让编辑器成为一个独立的层叠上下文 —— 里面那层渐隐（z-index 100）
+   和光标层（150）只在编辑器内部排队，不会跑到抽屉、遮罩、缩略图前面去。
+   （position:relative 而 z-index:auto 是不产生层叠上下文的，之前正是栽在这里。） */
+.cm-editor{position:relative;isolation:isolate;}
+.fade{position:absolute;inset:0;z-index:100;pointer-events:none;opacity:0;transition:opacity .3s ease;}
+body.focusmode .fade{opacity:1;}
+.frow{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--sub);margin-top:9px;}
+.frow .k{width:56px;} .frow input[type=range]{flex:1;accent-color:var(--accent);}
+.frow .unit{color:#b0a696;font-size:11px;}
+.numin,.txtin{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:5px 9px;font:inherit;font-size:12px;background:#fbf8f2;color:var(--ink);outline:none;}
+.numin:focus,.txtin:focus{border-color:var(--accent);background:#fff;}
+
+/* ---- drawer + hairline entry ---- */
+.hair{position:fixed;right:0;top:50%;transform:translateY(-50%);height:96px;width:3px;z-index:9;cursor:pointer;background:var(--accent);opacity:.42;border-radius:3px 0 0 3px;transition:height .18s ease,width .18s ease,opacity .18s ease;}
+.hair:hover{height:120px;width:4px;opacity:.85;}
+body.menuopen .hair{opacity:0;pointer-events:none;}
+.scrim{position:fixed;inset:0;background:rgba(40,32,24,.18);opacity:0;pointer-events:none;transition:opacity .2s;z-index:10;} body.menuopen .scrim{opacity:1;pointer-events:auto;}
+/* 抽屉、目录、顶栏都是界面 chrome：双击不该在上面划出一片选区（正文和对话框除外） */
+.drawer,.post-toc,.topline{user-select:none;-webkit-user-select:none;}
+.drawer input,.drawer textarea{user-select:text;-webkit-user-select:text;}
+.conflict .ctext{user-select:text;-webkit-user-select:text;}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:300px;background:var(--rail);border-left:1px solid var(--line);transform:translateX(100%);transition:transform .26s cubic-bezier(.2,.7,.2,1);z-index:11;font-family:var(--font-body);display:flex;flex-direction:column;padding:20px 18px;box-shadow:-20px 0 50px rgba(120,80,40,.16);overflow:auto;}
+body.menuopen .drawer{transform:translateX(0);}
+.rhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;} .rhead .t{font-size:15px;font-weight:600;} .rhead .x{color:var(--sub);cursor:pointer;font-size:16px;}
+.g{margin-bottom:16px;} .drawer label,.drawer .glabel{font-size:11px;color:#b0a696;text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:5px;}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--ink);word-break:break-all;}
+.divider{border:none;border-top:1px solid var(--line);margin:4px 0 12px;}
+.secttitle{font-size:11px;color:#b0a696;text-transform:uppercase;letter-spacing:.5px;margin:2px 0 8px;}
+.fitem{display:flex;align-items:center;justify-content:space-between;font-size:14px;padding:1px 0;}
+.fseg{display:inline-flex;background:#f0e9dd;border-radius:8px;padding:3px;}
+.fseg i{font-style:normal;font-size:13px;padding:5px 16px;border-radius:6px;color:var(--sub);cursor:pointer;transition:.12s;}
+.fseg i.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.06);}
+.fseg i[data-on="1"].on{color:var(--accent);font-weight:600;}
+#frange{display:none;} body.focusmode #frange{display:block;}
+.fadjust{display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-size:12px;color:var(--sub);padding:8px 0 2px;user-select:none;} .fadjust:hover{color:var(--accent);}
+.fcaret{font-size:10px;color:#b0a696;transition:transform .18s ease;} #frange.open .fcaret{transform:rotate(90deg);color:var(--accent);}
+#fpanel{display:none;} #frange.open #fpanel{display:block;}
+.curve{width:100%;height:96px;display:block;margin-top:8px;border-radius:8px;touch-action:none;cursor:crosshair;}
+.curvebg{fill:#f3ede4;}
+.curveline{fill:none;stroke:var(--accent);stroke-width:2;}
+.curvearm{fill:none;stroke:#cbb79f;stroke-width:1;stroke-dasharray:2 2;}
+.curvept{fill:#fff;stroke:var(--accent);stroke-width:2;cursor:grab;}
+.curvept.mid{fill:var(--accent);}
+.curvept:hover{fill:var(--accent-soft);} .curvept:active{cursor:grabbing;}
+.curvereset{font-size:11px;color:var(--accent);cursor:pointer;} .curvereset:hover{text-decoration:underline;}
+.curvehint{font-size:11px;color:#b0a696;margin-top:6px;line-height:1.4;}
+.dual{position:relative;height:26px;margin-top:6px;}
+.dual .dtrack{position:absolute;left:0;right:0;top:11px;height:4px;border-radius:4px;background:#e7dfd2;}
+.dual .dfill{position:absolute;top:11px;height:4px;border-radius:4px;background:var(--accent);}
+.dual input[type=range]{position:absolute;left:0;top:0;width:100%;height:26px;margin:0;background:none;-webkit-appearance:none;pointer-events:none;}
+.dual input[type=range]::-webkit-slider-runnable-track{height:26px;background:transparent;}
+.dual input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:16px;height:16px;margin-top:5px;border-radius:50%;background:#fff;border:2px solid var(--accent);cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.15);}
+.dual input[type=range]::-moz-range-thumb{pointer-events:auto;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--accent);cursor:pointer;}
+.dual input[type=range]::-moz-range-track{height:26px;background:transparent;}
+.spacer-fill{flex:1;min-height:12px;}
+.shortcuts{font-size:11px;color:#b0a696;line-height:1.9;border-top:1px solid var(--line);padding-top:10px;} .shortcuts b{color:var(--sub);font-weight:600;}
+
+/* ---- search panel (CodeMirror), themed to match ---- */
+.cm-panels{background:var(--rail);color:var(--ink);font-family:var(--font-body);z-index:7;}
+.cm-panels.cm-panels-bottom{border-top:1px solid var(--line);}
+.cm-search{padding:8px 12px;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.cm-search input,.cm-textfield{border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12px;background:#fff;outline:none;font-family:var(--font-body);}
+.cm-search input:focus{border-color:var(--accent);}
+.cm-search button,.cm-button{background:#fff;border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:12px;color:var(--sub);cursor:pointer;background-image:none;}
+.cm-search button:hover{border-color:var(--accent);color:var(--accent);}
+.cm-search label{font-size:12px;color:var(--sub);}
+.cm-searchMatch{background:rgba(162,123,92,.18);}
+.cm-searchMatch-selected{background:rgba(162,123,92,.38);}
+
+/* ---- toast + external-change dialog ---- */
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:#3a322a;color:#fff;font-family:var(--font-body);font-size:13px;padding:9px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:30;}
+.toast.show{opacity:.96;transform:translateX(-50%) translateY(0);}
+.conflict{position:fixed;inset:0;background:rgba(40,32,24,.28);display:none;align-items:center;justify-content:center;z-index:40;}
+.conflict.open{display:flex;}
+.cbox{background:var(--rail);border:1px solid var(--line);border-radius:14px;padding:22px 24px;width:420px;max-width:90vw;box-shadow:0 24px 60px rgba(120,80,40,.24);font-family:var(--font-body);}
+.ctitle{font-size:15px;font-weight:600;margin-bottom:8px;}
+.ctext{font-size:13px;color:var(--sub);line-height:1.7;margin-bottom:18px;word-break:break-all;}
+.cbtns{display:flex;gap:10px;justify-content:flex-end;}
+.cbtn{border:1px solid var(--accent);background:#fff;color:var(--accent);border-radius:10px;padding:8px 14px;font-size:13px;cursor:pointer;font-family:var(--font-body);}
+.cbtn.primary{background:var(--accent);color:#fff;}

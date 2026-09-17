@@ -1,0 +1,82 @@
+name: Release
+
+# Builds the desktop app on all three platforms. Tagging `v*` publishes a draft release;
+# the manual trigger just produces downloadable artifacts.
+#
+# 只要 Windows 安装包：仓库 Actions 页 → Release → Run workflow，跑完在这次运行页面底部的
+# Artifacts 里下载 `irori-Windows`（里面是 nsis/*-setup.exe 和 msi/*.msi，二选一装即可）。
+#
+# 注意：v1 只在 macOS 上做过人工验收（ADR-0001）。Windows / Linux 的产物是「能编译、能打包」，
+# 不是「已验证」——在有人真正跑过验收清单之前，不要把它们当成已支持的平台。
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+# 打 tag 时 tauri-action 要创建 release；新仓库默认给 GITHUB_TOKEN 的是只读权限，不写这行会 403
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS (Apple Silicon)
+            args: --target aarch64-apple-darwin
+            rust-targets: aarch64-apple-darwin
+          - os: macos-latest
+            label: macOS (Intel)
+            args: --target x86_64-apple-darwin
+            rust-targets: x86_64-apple-darwin
+          - os: ubuntu-latest
+            label: Linux
+            args: ''
+            rust-targets: ''
+          - os: windows-latest
+            label: Windows
+            args: ''
+            rust-targets: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - name: Linux 系统依赖（WebKitGTK）
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm ci
+      - name: 打包
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: ${{ matrix.args }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: Irori ${{ github.ref_name }}
+          releaseBody: |
+            仅 macOS 经过人工验收；Windows / Linux 产物未经验证（见 docs/adr/0001-tauri-shell.md）。
+          releaseDraft: true
+          prerelease: false
+      - name: 上传安装包
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: irori-${{ matrix.label }}
+          path: |
+            src-tauri/target/**/release/bundle/**/*
+          if-no-files-found: warn
