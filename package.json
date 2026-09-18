@@ -1,6 +1,6 @@
 {
   "name": "irori",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "description": "A lightweight standalone markdown editor — source-decorated writing, one window one document.",
