@@ -17,7 +17,7 @@ export class TauriPlatform implements Platform {
     void listen<string>('irori://open-file', (e) => handler(e.payload));
   }
   smokeOut() {
-    return invoke<{ out: string; menu: boolean; hold: boolean; dialog: boolean; close: boolean } | null>('smoke_out');
+    return invoke<{ out: string; menu: boolean; hold: boolean; dialog: boolean; close: boolean; pdf: boolean } | null>('smoke_out');
   }
   windowRect() {
     return invoke<{ x: number; y: number; w: number; h: number } | null>('window_rect');
@@ -28,8 +28,13 @@ export class TauriPlatform implements Platform {
   confirm(message: string) {
     return invoke<boolean>('confirm_dialog', { message });
   }
-  saveDialog(suggestedName: string) {
-    return invoke<string | null>('save_dialog', { suggestedName });
+  saveDialog(suggestedName: string, kind: 'markdown' | 'pdf' = 'markdown') {
+    return invoke<string | null>('save_dialog', { suggestedName, kind });
+  }
+  // only the macOS shell drives the webview's print operation straight into a file
+  readonly writesPdf = /Mac/.test(navigator.userAgent);
+  printPdf(path: string | null) {
+    return invoke<void>('print_pdf', { path });
   }
   readText(path: string) {
     return invoke<string>('read_text', { path });

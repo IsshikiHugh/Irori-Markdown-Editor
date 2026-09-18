@@ -55,8 +55,16 @@ export class WebPlatform implements Platform {
   async openDialog() {
     return this.dialogQueue.shift() ?? null;
   }
-  async saveDialog(_suggested: string) {
+  async saveDialog(_suggested: string, _kind?: 'markdown' | 'pdf') {
     return this.dialogQueue.shift() ?? null;
+  }
+  /** every export: where it went and how many pages were laid out for it (the actual PDF is
+      rendered by the tests themselves, with the browser's own page.pdf()) */
+  writesPdf = true;
+  pdfs: { path: string | null; pages: number }[] = [];
+  async printPdf(path: string | null) {
+    this.pdfs.push({ path, pages: document.querySelectorAll('#print .pg').length });
+    if (path) this.touch(path, { bytes: new Uint8Array(0), mtimeMs: Date.now() });
   }
   async readText(path: string) {
     const e = this.files.get(normalize(path));

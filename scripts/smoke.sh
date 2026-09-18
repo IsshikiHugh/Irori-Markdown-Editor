@@ -17,9 +17,11 @@ for a in "$@"; do
   [[ "$a" == "--shot" ]] && shot=1
   [[ "$a" == "--dialog" ]] && dialog=1
   [[ "$a" == "--close" ]] && closeprobe=1
+  [[ "$a" == "--pdf" ]] && pdfprobe=1
 done
 dialog=${dialog:-0}
 closeprobe=${closeprobe:-0}
+pdfprobe=${pdfprobe:-0}
 bin="src-tauri/target/$profile/irori"
 [[ -x "$bin" ]] || { echo "✗ $bin not found — run ./scripts/build.sh first"; exit 2; }
 
@@ -36,10 +38,15 @@ cat > "$doc" <<'MD'
 9. 九
 10. 十
 MD
+# a 4x3 red PNG next to the document (the export carries it; see the end of the text below)
+echo "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAFElEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC" | base64 -d > "$tmp/pic.png"
 # Append a long run of text so there is something to scroll (needed by the "refocus keeps the
 # scroll position" check). Blank line first, so these lines stay out of the list above.
 echo "" >> "$doc"
 for i in $(seq 1 200); do echo "第 $i 行的正文内容，写点中文让行高接近真实情况。" >> "$doc"; done
+# a picture for the PDF export to carry — at the very end, so its late load cannot move the lines
+# the scroll probe above measures
+printf '\n![](pic.png)\n' >> "$doc"
 
 hold=""
 [[ "$shot" == "1" ]] && hold="1"
@@ -47,7 +54,9 @@ dlg=""
 [[ "$dialog" == "1" ]] && dlg="1"
 cls=""
 [[ "$closeprobe" == "1" ]] && cls="1"
-IRORI_SMOKE_OUT="$out" IRORI_SMOKE_HOLD="$hold" IRORI_SMOKE_DIALOG="$dlg" IRORI_SMOKE_CLOSE="$cls" "$bin" "$doc" >/dev/null 2>&1 &
+pdf=""
+[[ "$pdfprobe" == "1" ]] && pdf="1"
+IRORI_SMOKE_OUT="$out" IRORI_SMOKE_HOLD="$hold" IRORI_SMOKE_DIALOG="$dlg" IRORI_SMOKE_CLOSE="$cls" IRORI_SMOKE_PDF="$pdf" "$bin" "$doc" >/dev/null 2>&1 &
 pid=$!
 for _ in $(seq 1 60); do [[ -f "$out" ]] && break; sleep 0.25; done
 
@@ -74,6 +83,27 @@ if [[ "$dialog" == "1" ]]; then
     { kill "$pid" && wait "$pid"; } 2>/dev/null || true
     exit 1
   fi
+fi
+
+if [[ "$pdfprobe" == "1" ]]; then
+  # PDF export through WKWebView's own print operation, written straight to a file
+  if ! node -e '
+    const fs = require("fs");
+    const [info, pdf] = process.argv.slice(1);
+    const r = JSON.parse(fs.readFileSync(info, "utf8"));
+    const bytes = fs.existsSync(pdf) ? fs.readFileSync(pdf) : null;
+    const raw = bytes ? bytes.toString("latin1") : "";
+    const pages = (raw.match(/\/Type\s*\/Page[^s]/g) || []).length;
+    // the head ornament and the picture in the document
+    const images = (raw.match(/\/Subtype\s*\/Image/g) || []).length;
+    const ok = !r.error && r.pages >= 2 && pages === r.pages && images >= 2;
+    console.log(`   ${ok ? "✓" : "✗"} PDF export: ${pages} page(s) written, ${r.pages} laid out, ${images} picture(s)${r.error ? " — " + r.error : ""}`);
+    process.exit(ok ? 0 : 1);
+  ' "$out.pdfinfo" "$out.pdf"; then
+    { kill "$pid" && wait "$pid"; } 2>/dev/null || true
+    exit 1
+  fi
+  [[ -n "${IRORI_SMOKE_PDF_KEEP:-}" ]] && cp "$out.pdf" "$IRORI_SMOKE_PDF_KEEP" && echo "   › kept: $IRORI_SMOKE_PDF_KEEP"
 fi
 
 # --shot: capture only this window (at the position and size it reports), nothing else on screen

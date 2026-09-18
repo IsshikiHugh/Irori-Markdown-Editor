@@ -23,6 +23,8 @@ export type SmokeCtx = {
   focusEditor: () => void;
   /** the text the word count currently displays */
   wordCount: () => string;
+  /** lay the export pages out and print them into `path`; resolves with the page count */
+  printTo: (path: string) => Promise<number>;
 };
 
 /** Returns right away, doing nothing, when no smoke output path is set. */
@@ -65,6 +67,17 @@ if (smoke?.dialog) {
   await wait(1200);
   const alive = await Promise.race([ctx.platform.windowRect().then(() => true), wait(3000).then(() => false)]);
   await ctx.platform.writeText(smoke.out + '.mainthread', JSON.stringify({ alive }));
+}
+if (smoke?.pdf) {
+  // The export through WKWebView's real print operation: the script checks the file exists and
+  // has as many pages as were laid out
+  let pdf: { pages: number; error?: string };
+  try {
+    pdf = { pages: await ctx.printTo(smoke.out + '.pdf') };
+  } catch (err) {
+    pdf = { pages: 0, error: String(err) };
+  }
+  await ctx.platform.writeText(smoke.out + '.pdfinfo', JSON.stringify(pdf));
 }
 if (smoke) {
   await ctx.platform.writeText(

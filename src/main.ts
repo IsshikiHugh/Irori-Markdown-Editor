@@ -13,6 +13,7 @@ import { createMinimap } from './features/minimap';
 import type { Minimap } from './features/minimap';
 import { createFocus } from './features/focus';
 import { createGlide } from './features/glide';
+import { clearPrint, exportPdf, preparePrint } from './features/export';
 import { countText, formatCounts } from './features/wordcount';
 import { installFocusGuard } from './app/focus-guard';
 import { installShortcuts } from './app/shortcuts';
@@ -318,8 +319,14 @@ async function boot() {
   };
   reflectSettings();
 
+  const exportAsPdf = () => {
+    document.body.classList.remove('menuopen');
+    void exportPdf(platform, doc.stemName, view.state.doc.toString(), resolveAsset, toast);
+  };
+  $('pdfbtn').onclick = exportAsPdf;
+
   // window-level shortcuts (v1 has no menu bar; see src/app/shortcuts.ts)
-  installShortcuts({ platform, doc, toast, setBuffer });
+  installShortcuts({ platform, doc, toast, setBuffer, exportPdf: exportAsPdf });
 
   platform.onCloseRequested(() => doc.requestClose());
   // a file handed to this window while it was already open (macOS "open with")
@@ -362,10 +369,34 @@ async function boot() {
     settings,
     focusEditor,
     wordCount: () => $('wcv').textContent ?? '',
+    async printTo(path) {
+      const pages = await preparePrint(view.state.doc.toString(), resolveAsset);
+      try {
+        await platform.printPdf(path);
+      } finally {
+        clearPrint();
+      }
+      return pages;
+    },
   });
 
   // test/debug handle — the app is driven through this in the behaviour suite
-  window.__irori = { ...(window.__irori || {}), view, doc, settings, platform, minimap, toc, focus, glide, toast, focusEditor };
+  window.__irori = {
+    ...(window.__irori || {}),
+    view,
+    doc,
+    settings,
+    platform,
+    minimap,
+    toc,
+    focus,
+    glide,
+    toast,
+    focusEditor,
+    // the export's pages without the export (the tests print them with the browser's own PDF)
+    preparePrint: () => preparePrint(view.state.doc.toString(), resolveAsset),
+    clearPrint,
+  };
 }
 
 void boot();

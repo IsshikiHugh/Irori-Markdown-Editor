@@ -43,14 +43,22 @@ export interface Platform {
   onOpenFile(handler: (path: string) => void): void;
 
   /** set by scripts/smoke.sh: write a boot report here and quit (null otherwise) */
-  smokeOut(): Promise<{ out: string; menu: boolean; hold: boolean; dialog: boolean; close: boolean } | null>;
+  smokeOut(): Promise<{ out: string; menu: boolean; hold: boolean; dialog: boolean; close: boolean; pdf: boolean } | null>;
   /** this window's rectangle in logical points (smoke screenshots), null off-desktop */
   windowRect(): Promise<{ x: number; y: number; w: number; h: number } | null>;
 
   openDialog(): Promise<string | null>;
   /** a yes/no question (used when closing would throw away an unnamed buffer) */
   confirm(message: string): Promise<boolean>;
-  saveDialog(suggestedName: string): Promise<string | null>;
+  /** `kind` picks the file type offered: Markdown (default) or a PDF export */
+  saveDialog(suggestedName: string, kind?: 'markdown' | 'pdf'): Promise<string | null>;
+
+  /** whether printPdf can write a file itself; otherwise export goes through the system print
+      dialog (whose "save as PDF" is the export) */
+  readonly writesPdf: boolean;
+  /** Print the page (its print stylesheet decides what shows) to PDF: into `path` when given —
+      only when writesPdf — or through the system print dialog when null. */
+  printPdf(path: string | null): Promise<void>;
 
   readText(path: string): Promise<string>;
   writeText(path: string, content: string): Promise<void>;

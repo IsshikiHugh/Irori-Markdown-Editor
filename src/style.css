@@ -228,6 +228,8 @@ body.menuopen .drawer{transform:translateX(0);}
 .dual input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:16px;height:16px;margin-top:5px;border-radius:50%;background:#fff;border:2px solid var(--accent);cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.15);}
 .dual input[type=range]::-moz-range-thumb{pointer-events:auto;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid var(--accent);cursor:pointer;}
 .dual input[type=range]::-moz-range-track{height:26px;background:transparent;}
+.dbtn{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;background:#fbf8f2;color:var(--ink);cursor:pointer;transition:border-color .12s,color .12s;}
+.dbtn:hover{border-color:var(--accent);color:var(--accent);}
 .spacer-fill{flex:1;min-height:12px;}
 .shortcuts{font-size:11px;color:#b0a696;line-height:1.9;border-top:1px solid var(--line);padding-top:10px;} .shortcuts b{color:var(--sub);font-weight:600;}
 
@@ -254,3 +256,28 @@ body.menuopen .drawer{transform:translateX(0);}
 .cbtns{display:flex;gap:10px;justify-content:flex-end;}
 .cbtn{border:1px solid var(--accent);background:#fff;color:var(--accent);border-radius:10px;padding:8px 14px;font-size:13px;cursor:pointer;font-family:var(--font-body);}
 .cbtn.primary{background:var(--accent);color:#fff;}
+
+/* ---- PDF export (features/export.ts) ----
+   The rows are the editor's own (.ln …), in the editor's text column (652px), so they wrap the
+   same. `.pmeasure` is where they are laid out once to be measured; `#print` holds the finished
+   A4 pages and exists only for the print media. The sheet has no engine margins (@page) — each
+   page carries its own, so the paper colour reaches every edge, as the window does. */
+.pmeasure{position:absolute;left:-100000px;top:0;width:652px;visibility:hidden;pointer-events:none;}
+.pmeasure,#print{font-family:var(--font-body);tab-size:4;}
+/* pictures never outgrow a page (export.ts: PAGE_BODY, minus the picture's own 8px margins) */
+.pmeasure .imgwrap img,#print .imgwrap img{max-height:950px;width:auto;}
+/* the head ornament, as a 44px row; its picture (export.ts: ornament) covers the same pixels as
+   .cm-content::before/::after */
+.porn{position:relative;height:44px;}
+.porn img{position:absolute;left:calc(50% - 130px);top:14px;width:260px;height:13px;}
+#print{display:none;}
+/* 296.5mm, not 297: a sliver under the sheet, so rounding never spills a page onto a blank one */
+.pg{width:210mm;height:296.5mm;padding-top:72px;overflow:hidden;background:var(--paper);break-after:page;}
+.pg:last-child{break-after:auto;}
+.pclip{width:652px;margin:0 auto;overflow:hidden;}
+@media print{
+  @page{size:A4;margin:0;}
+  html,body{height:auto;overflow:visible;background:var(--paper);-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  body>:not(#print){display:none!important;}
+  #print{display:block;}
+}

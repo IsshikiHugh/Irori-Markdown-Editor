@@ -57,5 +57,6 @@ if [[ "$fast" == "0" ]]; then
   echo "› smoke test (system WebView)"
   ./scripts/smoke.sh --dialog
   ./scripts/smoke.sh --close
+  ./scripts/smoke.sh --pdf
 fi
 echo "› all passed"

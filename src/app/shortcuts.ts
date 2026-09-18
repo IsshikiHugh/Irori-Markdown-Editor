@@ -10,9 +10,11 @@ export type ShortcutDeps = {
   toast: (msg: string) => void;
   /** puts the content into the buffer after a new file is opened */
   setBuffer: (text: string) => void;
+  /** ⌘P: export the document as a PDF */
+  exportPdf: () => void;
 };
 
-export function installShortcuts({ platform, doc, toast, setBuffer }: ShortcutDeps): void {
+export function installShortcuts({ platform, doc, toast, setBuffer, exportPdf }: ShortcutDeps): void {
 /* ---------- window-level shortcuts (no menu bar in v1) ----------
    These also have to work when the focus is NOT in the editor — typing in the
    drawer's font field must not make ⌘S or Esc stop working. Anything the editor's
@@ -38,6 +40,12 @@ addEventListener('keydown', (e) => {
   if (k === '\\') {
     e.preventDefault();
     document.body.classList.toggle('menuopen');
+    return;
+  }
+  if (k === 'p' && !e.shiftKey) {
+    // the host's own print would capture the window chrome and only the lines on screen
+    e.preventDefault();
+    exportPdf();
     return;
   }
   if (k === 'n' && !e.shiftKey) {

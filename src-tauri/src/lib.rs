@@ -14,6 +14,9 @@ use tauri::Emitter; // only macOS "open with" events need to send the path to a 
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
+#[cfg(target_os = "macos")]
+mod pdf;
+
 /// The file this window was launched with (CLI argument, or a macOS "open with" event).
 #[derive(Default)]
 struct Startup(Mutex<Option<String>>);
@@ -68,13 +71,22 @@ async fn open_dialog(app: tauri::AppHandle) -> Option<String> {
     .map(|p| p.to_string_lossy().to_string())
 }
 
+/// `kind` picks the file type: "pdf" for an export, Markdown otherwise.
 #[tauri::command]
-async fn save_dialog(app: tauri::AppHandle, suggested_name: Option<String>) -> Option<String> {
+async fn save_dialog(
+    app: tauri::AppHandle,
+    suggested_name: Option<String>,
+    kind: Option<String>,
+) -> Option<String> {
+    let (label, ext) = match kind.as_deref() {
+        Some("pdf") => ("PDF", "pdf"),
+        _ => ("Markdown", "md"),
+    };
     wait_for(|tx| {
         app.dialog()
             .file()
-            .add_filter("Markdown", &["md"])
-            .set_file_name(suggested_name.unwrap_or_else(|| "未命名.md".into()))
+            .add_filter(label, &[ext])
+            .set_file_name(suggested_name.unwrap_or_else(|| format!("未命名.{ext}")))
             .save_file(move |p| {
                 let _ = tx.send(p);
             })
@@ -101,6 +113,38 @@ async fn confirm_dialog(app: tauri::AppHandle, message: String) -> bool {
     })
     .await
     .unwrap_or(false)
+}
+
+/// Print the page to PDF. With a `path` (macOS) the file is written directly, no panel shown;
+/// without one the system print dialog opens, whose PDF option is the export on the other
+/// platforms. What gets printed is decided by the page's print stylesheet.
+#[tauri::command]
+async fn print_pdf(window: tauri::WebviewWindow, path: Option<String>) -> Res<()> {
+    let Some(path) = path else {
+        return window.print().map_err(err);
+    };
+    #[cfg(target_os = "macos")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel();
+        // the print operation must be started on the main thread; if the closure never runs,
+        // `tx` is dropped with it and the wait below ends as a failure instead of hanging
+        window
+            .with_webview(move |wv| unsafe { pdf::start(wv.inner(), wv.ns_window(), &path, tx) })
+            .map_err(err)?;
+        let ok = tauri::async_runtime::spawn_blocking(move || rx.recv().unwrap_or(false))
+            .await
+            .unwrap_or(false);
+        if ok {
+            Ok(())
+        } else {
+            Err("PDF 写入失败".into())
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = path;
+        Err("此平台请使用系统打印对话框导出 PDF".into())
+    }
 }
 
 #[tauri::command]
@@ -262,6 +306,9 @@ struct SmokeInfo {
     /// after the report, close the window the same way ⌘W does — the script then checks
     /// the process actually goes away (regression guard for "confirm, but it never closes")
     close: bool,
+    /// export the document to `<out>.pdf` through the real print path (no panel) — the
+    /// script then checks the file and its page count
+    pdf: bool,
 }
 
 /// An empty string counts as "set" too, so check the value itself — otherwise `FOO="" app` would
@@ -282,6 +329,7 @@ fn smoke_out(app: tauri::AppHandle) -> Option<SmokeInfo> {
         hold: flag("IRORI_SMOKE_HOLD"),
         dialog: flag("IRORI_SMOKE_DIALOG"),
         close: flag("IRORI_SMOKE_CLOSE"),
+        pdf: flag("IRORI_SMOKE_PDF"),
     })
 }
 
@@ -321,6 +369,7 @@ pub fn run() {
             open_dialog,
             confirm_dialog,
             save_dialog,
+            print_pdf,
             read_text,
             write_text,
             write_binary,
