@@ -619,6 +619,21 @@ export const cases = [
         return n;
       });
       t.ok('PDF coloured', printed > 0, String(printed));
+      // colour only: a ```markdown block must not look rendered
+      const md2 = ['```markdown', '# 标题 **粗体** *斜体*', '```'].join('\n');
+      await page.evaluate((text) => {
+        const v = window.__irori.view;
+        v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text }, selection: { anchor: text.length } });
+      }, md2);
+      await sleep(1500);
+      const styles = await page.evaluate(() =>
+        [...document.querySelectorAll('.cm-content .cm-line.cb [class^="tok-"]')].map((e) => {
+          const cs = getComputedStyle(e);
+          return [e.className, cs.fontWeight, cs.fontStyle];
+        }),
+      );
+      t.ok('markdown block is coloured', styles.length > 0, '');
+      t.ok('but never bold or italic', styles.every(([, w, st]) => (w === '400' || w === 'normal') && st === 'normal'), JSON.stringify(styles));
     },
   },
 ];

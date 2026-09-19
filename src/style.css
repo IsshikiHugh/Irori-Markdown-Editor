@@ -149,17 +149,18 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .ln.cb.cbclose,.cm-editor .cm-line.ln.cb.cbclose{border-radius:0 0 8px 8px;padding-bottom:4px;}
 .ln.cb.mhover{background-color:#ede6dd;} .ln.cb.aline{background-color:#e9e1d6;}
 .cblang{color:#b3a892;}
-/* syntax colours (editor/highlight.ts, @lezer/highlight's classHighlighter): muted, on the paper */
+/* syntax colours (editor/highlight.ts, @lezer/highlight's classHighlighter): muted, on the paper.
+   Colour only — no weight or slant — so code (a ```markdown block included) never looks rendered. */
 .tok-keyword,.tok-bool,.tok-null{color:#9a5a3c;}
 .tok-string,.tok-string2{color:#5f7d48;}
-.tok-comment{color:#aa9f8c;font-style:italic;}
+.tok-comment{color:#aa9f8c;}
 .tok-number,.tok-atom{color:#a8672c;}
 .tok-typeName,.tok-className,.tok-namespace{color:#7b5f93;}
 .tok-definition,.tok-macroName{color:#3f6d86;}
 .tok-propertyName,.tok-attributeName{color:#4f6f78;}
 .tok-tagName,.tok-labelName{color:#9a5a3c;}
 .tok-meta,.tok-regexp,.tok-escape{color:#a1545f;}
-.tok-heading,.tok-strong{font-weight:700;} .tok-emphasis{font-style:italic;}
+.tok-heading{color:#9a5a3c;} .tok-strong,.tok-emphasis{color:#7b5f93;}
 .tok-link,.tok-url{color:var(--link);}
 .tok-invalid{color:#b3452e;}
 
