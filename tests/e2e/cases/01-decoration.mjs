@@ -1,6 +1,6 @@
 /* Source decoration: wherever the caret is, markers are visible and editable and every line's text is exactly its
    Markdown source; away from it, pictures, tables and links show rendered. */
-import { docText, lineClasses, setDoc, sleep } from '../harness.mjs';
+import { MOD, docText, lineClasses, setDoc, sleep } from '../harness.mjs';
 
 const SAMPLE = [
   '# 标题一',
@@ -494,6 +494,58 @@ export const cases = [
         return out;
       });
       t.eq('PDF: the link markup is hidden', printed, '[](https://x.y)');
+    },
+  },
+  {
+    id: 'B-90',
+    name: '⌘-click (Ctrl-click off macOS) on a link opens it — in text or in a rendered table; a plain click only places the caret',
+    async run(t, ctx) {
+      const md = ['看 [文档](https://x.y/doc "标题") 再说。', '', '| 名称 | 链接 |', '| --- | --- |', '| 梨 | [详情](https://x.y/pear) |', '', '末行'].join('\n');
+      const page = await ctx.open({ files: { '/n/l.md': md }, startup: '/n/l.md' });
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.length } });
+      });
+      await sleep(100);
+      const opened = () => page.evaluate(() => window.__irori.platform.openedUrls);
+      const centre = (sel) =>
+        page.evaluate((s) => {
+          const r = document.querySelector(s).getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+        }, sel);
+      const modClick = async (p) => {
+        await page.keyboard.down(MOD);
+        await page.mouse.click(p.x, p.y);
+        await page.keyboard.up(MOD);
+        await sleep(100);
+      };
+
+      // plain click: caret goes in, the link expands, nothing opens
+      let at = await centre('.cm-line .lnk');
+      await page.mouse.click(at.x, at.y);
+      await sleep(100);
+      t.eq('plain click opens nothing', await opened(), []);
+      t.ok('plain click shows the source', (await page.evaluate(() => document.querySelector('.cm-line').textContent)).includes('](https'), '');
+
+      // ⌘-click on the collapsed link
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.length } });
+      });
+      await sleep(100);
+      at = await centre('.cm-line .lnk');
+      await modClick(at);
+      t.eq('⌘-click opens the URL (title left out)', await opened(), ['https://x.y/doc']);
+      t.ok('and does not move the caret into it', await page.evaluate(() => {
+        const v = window.__irori.view;
+        return v.state.selection.main.head === v.state.doc.length;
+      }), '');
+
+      // ⌘-click on a link inside the rendered table
+      at = await centre('.mdtbl .lnk');
+      await modClick(at);
+      t.eq('opens a link in a table', (await opened()).at(-1), 'https://x.y/pear');
+      t.ok('the table stays rendered', await page.evaluate(() => !!document.querySelector('.cm-content .mdtbl')), '');
     },
   },
 ];

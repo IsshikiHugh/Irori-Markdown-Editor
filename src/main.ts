@@ -164,6 +164,9 @@ async function boot() {
     },
     onToggleDrawer: () => document.body.classList.toggle('menuopen'),
     onEscape: () => document.body.classList.remove('menuopen'),
+    onOpenLink(url) {
+      platform.openUrl(url).catch((err) => toast('无法打开链接：' + String((err as Error)?.message ?? err)));
+    },
     resolveAsset,
   });
   applyFont(view, settings.value.fontFamily);

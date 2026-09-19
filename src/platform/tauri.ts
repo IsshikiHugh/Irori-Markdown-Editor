@@ -81,6 +81,9 @@ export class TauriPlatform implements Platform {
       }
     });
   }
+  openUrl(url: string) {
+    return invoke<void>('open_url', { url });
+  }
   appVersion() {
     return invoke<string>('app_version');
   }

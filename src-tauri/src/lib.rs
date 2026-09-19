@@ -288,6 +288,20 @@ fn take_reopen(app: &tauri::AppHandle) -> Option<Vec<String>> {
     serde_json::from_str(&raw).ok()
 }
 
+/// ⌘/Ctrl-click on a link: hand it to the default browser (or mail app). Only web and mail
+/// links — a document must not be able to launch programs or open local files this way.
+#[tauri::command]
+fn open_url(url: String) -> Res<()> {
+    let lower = url.to_ascii_lowercase();
+    if !["http://", "https://", "mailto:"]
+        .iter()
+        .any(|s| lower.starts_with(s))
+    {
+        return Err("只能打开网址".into());
+    }
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(err)
+}
+
 #[tauri::command]
 fn app_version(app: tauri::AppHandle) -> String {
     app.package_info().version.to_string()
@@ -564,6 +578,7 @@ pub fn run() {
             save_dialog,
             print_pdf,
             app_version,
+            open_url,
             check_update,
             download_update,
             apply_update,

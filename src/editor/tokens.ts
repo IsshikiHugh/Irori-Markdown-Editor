@@ -255,6 +255,17 @@ export function linkParts(text: string, marks: Mark[]): { from: number; to: numb
   return out;
 }
 
+/** The URL of the link at `offset` in a line (its text or its markup), or null. A title after
+    the URL (`[a](url "title")`) is left out. */
+export function linkAt(text: string, offset: number): string | null {
+  for (const l of linkParts(text, inlineMarks(text))) {
+    if (offset < l.from || offset >= l.to) continue;
+    const url = text.slice(l.tail.from + 2, l.to - 1).trim().split(/\s+/)[0];
+    return url || null;
+  }
+  return null;
+}
+
 /* ---------- tables ----------
    A GFM table: a header row, a delimiter row with the same number of cells (`---`, `:--`,
    `--:`, `:-:`), then body rows up to a blank line or a line without a `|`. Away from the

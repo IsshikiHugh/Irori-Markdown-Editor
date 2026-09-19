@@ -15,6 +15,7 @@ import { sourceDecoration, setAssetResolver } from './decorations';
 import type { AssetResolver } from './decorations';
 import { imageNavKeymap } from './image-nav';
 import { continueList } from './lists';
+import { linkClicks, setLinkOpener } from './links';
 
 export type EditorHooks = {
   onChange: (doc: string) => void;
@@ -25,6 +26,8 @@ export type EditorHooks = {
   onImage: (file: File) => void;
   onToggleDrawer: () => void;
   onEscape: () => void;
+  /** ⌘/Ctrl-click on a link */
+  onOpenLink: (url: string) => void;
   resolveAsset: AssetResolver;
 };
 
@@ -97,6 +100,7 @@ const imeClass: Extension = EditorView.domEventHandlers({
 
 export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHooks): EditorView {
   setAssetResolver(hooks.resolveAsset);
+  setLinkOpener(hooks.onOpenLink);
 
   const imagePaste: Extension = EditorView.domEventHandlers({
     paste(e) {
@@ -147,6 +151,7 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
         search({ top: false }),
         zh,
         sourceDecoration,
+        linkClicks,
         imeClass,
         imagePaste,
         caretLife,

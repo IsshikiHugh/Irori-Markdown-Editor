@@ -104,6 +104,11 @@ export class WebPlatform implements Platform {
   downloadError: string | null = null;
   restarts: (string | null)[] = [];
   prepareHandler: (() => Promise<RestartReady>) | null = null;
+  /** links a ⌘/Ctrl-click asked to open */
+  openedUrls: string[] = [];
+  async openUrl(url: string) {
+    this.openedUrls.push(url);
+  }
   async appVersion() {
     return '0.0.0-web';
   }

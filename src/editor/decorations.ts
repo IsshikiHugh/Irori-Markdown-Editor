@@ -34,6 +34,7 @@ import {
   withListRow,
 } from './tokens';
 import type { QuoteState } from './tokens';
+import { isOpenClick, openLink } from './links';
 
 /** How an image's relative `src` becomes something the webview can load. */
 export type AssetResolver = (src: string) => string | null;
@@ -153,6 +154,13 @@ class TableWidget extends WidgetType {
     row.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
+      // ⌘/Ctrl-click on a link in a cell opens it (links.ts) instead of editing the table
+      const link = (e.target as HTMLElement).closest('.lnk');
+      if (link && isOpenClick(e)) {
+        const url = link.querySelector('.url')?.textContent?.trim().split(/\s+/)[0];
+        if (url) openLink(url);
+        return;
+      }
       const cell = (e.target as HTMLElement).closest<HTMLElement>('[data-off]');
       const pos = view.posAtDOM(row) + Number(cell?.dataset.off ?? 0);
       view.dispatch({ selection: { anchor: pos }, userEvent: 'select' });

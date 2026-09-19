@@ -82,6 +82,9 @@ export interface Platform {
   /** ask the host to confirm before the window closes while there are unsaved edits */
   onCloseRequested(handler: () => boolean | Promise<boolean>): void;
 
+  /** open a web or mail link in the default app (⌘/Ctrl-click on a link) */
+  openUrl(url: string): Promise<void>;
+
   appVersion(): Promise<string>;
   /** a newer release, if one is published. The automatic check runs once per app run, is
       offered in one window only and says nothing on failure (null); a `manual` one always asks

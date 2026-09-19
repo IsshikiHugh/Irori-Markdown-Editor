@@ -4,6 +4,7 @@ import {
   imageLine,
   inlineMarks,
   lineHTML,
+  linkAt,
   linkParts,
   listItem,
   listRows,
@@ -203,6 +204,13 @@ describe('links', () => {
     expect(text.slice(l.from, l.to)).toBe('[文档](https://x.y)');
     expect(text.slice(l.head.from, l.head.to)).toBe('[');
     expect(text.slice(l.tail.from, l.tail.to)).toBe('](https://x.y)');
+  });
+  it('finds the URL of the link at an offset, without a title', () => {
+    const text = '看 [文档](https://x.y "标题") 吧';
+    expect(linkAt(text, 3)).toBe('https://x.y');
+    expect(linkAt(text, text.indexOf('https'))).toBe('https://x.y');
+    expect(linkAt(text, 0)).toBeNull();
+    expect(linkAt(text, text.length - 1)).toBeNull();
   });
   it('leaves an image source and code alone', () => {
     expect(linkParts('![a](b.png)', inlineMarks('![a](b.png)'))).toEqual([]);

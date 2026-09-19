@@ -153,6 +153,8 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .mdtbl tbody tr:nth-child(even) td{background:rgba(162,123,92,.03);}
 .mdtbl .tok,.mdtbl .url,.mini .lnk>.tok,.mini .lnk>.url,.pmeasure .lnk>.tok,.pmeasure .lnk>.url,#print .lnk>.tok,#print .lnk>.url{display:none;}
 .tblrow .mdtbl{display:block;overflow-x:auto;}
+/* ⌘ (Ctrl) held: links are clickable (editor/links.ts) */
+.linkkey .lnk{cursor:pointer;text-decoration:underline;text-underline-offset:3px;}
 
 /* ---- left TOC (Nlvi-theme style, from the blog editor) ---- */
 .post-toc{position:fixed;left:0;top:50%;transform:translate(0,-50%);width:210px;padding:0 26px;z-index:6;font-family:var(--font-body);transition:transform .34s cubic-bezier(.2,.7,.2,1),opacity .3s ease;}
