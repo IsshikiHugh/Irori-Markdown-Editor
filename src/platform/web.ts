@@ -4,7 +4,7 @@
    so it has to behave like a real disk (paths, directories, mtimes, name collisions,
    external modification). Tests seed and inspect it through `window.__irori`. */
 
-import type { Platform, Settings, Stat } from './types';
+import type { Platform, Settings, Stat, UpdateInfo } from './types';
 import { dirname, normalize } from './paths';
 
 type Entry = { text?: string; bytes?: Uint8Array; mtimeMs: number; dir?: boolean };
@@ -99,6 +99,18 @@ export class WebPlatform implements Platform {
   }
   async newWindow() {
     this.newWindows++;
+  }
+  /** tests set the release to offer; installs counts accepted offers, installError makes one fail */
+  update: UpdateInfo | null = null;
+  installs = 0;
+  installError: string | null = null;
+  async checkUpdate() {
+    return this.update;
+  }
+  async installUpdate() {
+    this.installs++;
+    await new Promise((r) => setTimeout(r, 150)); // a download takes a moment
+    if (this.installError) throw new Error(this.installError);
   }
   closeRequests = 0;
   async closeWindow() {

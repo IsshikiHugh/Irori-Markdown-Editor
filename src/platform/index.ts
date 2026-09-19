@@ -6,7 +6,7 @@ declare global {
     __TAURI_INTERNALS__?: unknown;
     __irori?: Record<string, unknown>;
     /** set by the behaviour tests before boot: files on the virtual disk + which to open */
-    __iroriSeed?: { files?: Record<string, string>; images?: Record<string, string>; startup?: string | null; settings?: unknown };
+    __iroriSeed?: { files?: Record<string, string>; images?: Record<string, string>; startup?: string | null; settings?: unknown; update?: { version: string; quits: boolean } };
   }
 }
 
@@ -31,6 +31,7 @@ export async function getPlatform(): Promise<Platform> {
       }
       web.startup = seed.startup ?? null;
       if (seed.settings) web.settings = seed.settings as never;
+      if (seed.update) web.update = seed.update;
     }
     current = web;
     window.__irori = { ...(window.__irori || {}), platform: web };

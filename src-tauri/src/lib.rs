@@ -6,6 +6,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tauri::Emitter; // only macOS "open with" events need to send the path to a new window
 use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_updater::UpdaterExt;
 
 #[cfg(target_os = "macos")]
 mod pdf;
@@ -20,6 +22,23 @@ mod pdf;
 /// The file this window was launched with (CLI argument, or a macOS "open with" event).
 #[derive(Default)]
 struct Startup(Mutex<Option<String>>);
+
+/// Self-update. The check runs once per app run and only the first window to ask is told — with
+/// one window per document, every other window would otherwise repeat the same offer. The
+/// release found is kept here until the person accepts it.
+#[derive(Default)]
+struct Updates {
+    asked: AtomicBool,
+    found: Mutex<Option<tauri_plugin_updater::Update>>,
+}
+
+#[derive(Serialize)]
+struct UpdateInfo {
+    version: String,
+    /// installing closes the app (Windows hands over to the installer); elsewhere the new
+    /// version simply runs from the next launch
+    quits: bool,
+}
 
 #[derive(Serialize)]
 struct Stat {
@@ -113,6 +132,45 @@ async fn confirm_dialog(app: tauri::AppHandle, message: String) -> bool {
     })
     .await
     .unwrap_or(false)
+}
+
+/// Whether a newer release is published. Quiet on every failure (offline, rate-limited, no
+/// release for this platform): an update check must never be in the way of writing. Debug
+/// builds and smoke runs never ask.
+#[tauri::command]
+async fn check_update(app: tauri::AppHandle) -> Option<UpdateInfo> {
+    let updates = app.state::<Updates>();
+    if cfg!(debug_assertions)
+        || std::env::var_os("IRORI_SMOKE_OUT").is_some()
+        || updates.asked.swap(true, Ordering::SeqCst)
+    {
+        return None;
+    }
+    let update = app.updater().ok()?.check().await.ok()??;
+    let info = UpdateInfo {
+        version: update.version.clone(),
+        quits: cfg!(windows),
+    };
+    *updates.found.lock().ok()? = Some(update);
+    Some(info)
+}
+
+/// Download, verify (against the public key in tauri.conf.json) and install the release that
+/// `check_update` found. On failure it stays around, so the person can try again.
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Res<()> {
+    let updates = app.state::<Updates>();
+    let update = updates
+        .found
+        .lock()
+        .map_err(err)?
+        .take()
+        .ok_or("没有可安装的更新")?;
+    let result = update.download_and_install(|_, _| {}, || {}).await;
+    if result.is_err() {
+        *updates.found.lock().map_err(err)? = Some(update);
+    }
+    result.map_err(err)
 }
 
 /// Print the page to PDF. With a `path` (macOS) the file is written directly, no panel shown;
@@ -361,7 +419,9 @@ fn plain_path(p: String) -> String {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Startup(Mutex::new(arg_path())))
+        .manage(Updates::default())
         .invoke_handler(tauri::generate_handler![
             startup_path,
             smoke_out,
@@ -370,6 +430,8 @@ pub fn run() {
             confirm_dialog,
             save_dialog,
             print_pdf,
+            check_update,
+            install_update,
             read_text,
             write_text,
             write_binary,

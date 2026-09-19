@@ -457,4 +457,48 @@ export const cases = [
       t.eq('editor scrollbar has zero width', bars.gutter, 0);
     },
   },
+  {
+    id: 'B-85',
+    name: 'A newer release is offered in a corner note; nothing installs without a click, and the text keeps focus',
+    async run(t, ctx) {
+      const shown = (p) => p.evaluate(() => getComputedStyle(document.getElementById('update')).display !== 'none');
+      const text = (p) => p.evaluate(() => document.getElementById('utext').textContent);
+
+      const quiet = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md' });
+      await sleep(200);
+      t.ok('up to date: no note', !(await shown(quiet)), '');
+
+      const page = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md', update: { version: '9.9.9', quits: false } });
+      await sleep(200);
+      t.ok('note shows', await shown(page), '');
+      t.ok('names the version', (await text(page)).includes('9.9.9'), await text(page));
+      const box = await page.evaluate(() => {
+        const r = document.getElementById('update').getBoundingClientRect();
+        return { left: r.left, bottom: innerHeight - r.bottom };
+      });
+      t.ok('sits in the bottom-left corner', box.left < 40 && box.bottom < 40, JSON.stringify(box));
+      t.eq('nothing installed yet', await page.evaluate(() => window.__irori.platform.installs), 0);
+
+      // a failure is reported and can be retried
+      await page.evaluate(() => (window.__irori.platform.installError = 'offline'));
+      await page.click('#uyes');
+      await sleep(300);
+      t.ok('failure is reported', (await text(page)).includes('offline'), await text(page));
+      await page.evaluate(() => (window.__irori.platform.installError = null));
+      await page.click('#uyes');
+      await sleep(300);
+      t.eq('retry installs', await page.evaluate(() => window.__irori.platform.installs), 2);
+      t.ok('says when it takes effect', (await text(page)).includes('下次打开'), await text(page));
+      t.ok('the text still has focus', await page.evaluate(() => window.__irori.view.hasFocus), '');
+
+      // "later" just puts it away
+      const later = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md', update: { version: '9.9.9', quits: true } });
+      await sleep(200);
+      t.ok('warns that Windows closes the app', (await text(later)).includes('关闭'), await text(later));
+      await later.click('#uno');
+      await sleep(100);
+      t.ok('"later" hides it', !(await shown(later)), '');
+      t.eq('and installs nothing', await later.evaluate(() => window.__irori.platform.installs), 0);
+    },
+  },
 ];

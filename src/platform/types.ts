@@ -34,6 +34,10 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export type Stat = { mtimeMs: number; size: number } | null;
 
+/** a newer published release; `quits`: installing closes the app (Windows hands over to the
+    installer), elsewhere the new version runs from the next launch */
+export type UpdateInfo = { version: string; quits: boolean };
+
 export interface Platform {
   readonly kind: 'tauri' | 'web';
 
@@ -77,6 +81,12 @@ export interface Platform {
   setTitle(title: string): Promise<void>;
   /** ask the host to confirm before the window closes while there are unsaved edits */
   onCloseRequested(handler: () => boolean | Promise<boolean>): void;
+
+  /** a newer release, if one is published — null when up to date, offline, or already offered
+      in another window (the check runs once per app run) */
+  checkUpdate(): Promise<UpdateInfo | null>;
+  /** download, verify and install the release checkUpdate found */
+  installUpdate(): Promise<void>;
 
   loadSettings(): Promise<Partial<Settings> | null>;
   saveSettings(settings: Settings): Promise<void>;

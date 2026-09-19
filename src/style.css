@@ -248,6 +248,13 @@ body.menuopen .drawer{transform:translateX(0);}
 /* ---- toast + external-change dialog ---- */
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:#3a322a;color:#fff;font-family:var(--font-body);font-size:13px;padding:9px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:30;}
 .toast.show{opacity:.96;transform:translateX(-50%) translateY(0);}
+/* the update offer (app/update.ts): bottom-left, clear of the minimap and the drawer */
+.update{position:fixed;left:24px;bottom:24px;display:none;align-items:center;gap:8px;max-width:calc(100vw - 184px);background:var(--rail);border:1px solid var(--line);border-radius:12px;padding:8px 10px 8px 14px;box-shadow:0 10px 30px rgba(120,80,40,.14);font-family:var(--font-body);font-size:13px;color:var(--sub);z-index:30;}
+.update.open{display:flex;}
+.ubtn{flex:none;border:1px solid var(--accent);background:#fff;color:var(--accent);border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;font-family:var(--font-body);}
+.ubtn.primary{background:var(--accent);color:#fff;}
+.ubtn:disabled{opacity:.5;cursor:default;}
+.ubtn[hidden]{display:none;}
 .conflict{position:fixed;inset:0;background:rgba(40,32,24,.28);display:none;align-items:center;justify-content:center;z-index:40;}
 .conflict.open{display:flex;}
 .cbox{background:var(--rail);border:1px solid var(--line);border-radius:14px;padding:22px 24px;width:420px;max-width:90vw;box-shadow:0 24px 60px rgba(120,80,40,.24);font-family:var(--font-body);}

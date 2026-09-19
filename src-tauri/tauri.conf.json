@@ -61,5 +61,13 @@
         "role": "Editor"
       }
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE2QzFFNjBBRkU2NzIyMzcKUldRM0ltZitDdWJCRmdSS3p3ZWFaVXdmZXZSVjJKZVMyUVZwSldNWXY2d2lDeGhJQm4xSFE5WmIK",
+      "endpoints": [
+        "https://github.com/IsshikiHugh/Irori-Markdown-Editor/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

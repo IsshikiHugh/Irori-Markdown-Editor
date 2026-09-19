@@ -83,7 +83,7 @@ export async function launch() {
 }
 
 /** Boot the app with a seeded virtual disk. */
-export async function openApp(browser, { files = {}, images = {}, startup = null, settings = null, viewport } = {}) {
+export async function openApp(browser, { files = {}, images = {}, startup = null, settings = null, update = null, viewport } = {}) {
   const page = await browser.newPage();
   await page.setViewport(viewport || { width: 1440, height: 900 });
   page.on('pageerror', (e) => console.log('   [page error] ' + e.message));
@@ -99,7 +99,7 @@ export async function openApp(browser, { files = {}, images = {}, startup = null
         }
       } catch {}
     },
-    { files, images, startup, settings },
+    { files, images, startup, settings, update },
   );
   await page.goto(`${browser.__base}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__irori && window.__irori.view, { timeout: 10000 });

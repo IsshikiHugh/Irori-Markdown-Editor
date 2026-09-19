@@ -8,8 +8,9 @@ name: Release
 #   2. git tag vX.Y.Z && git push origin vX.Y.Z
 #
 # Flow: `prepare` checks the tag against the version, takes this version's notes from CHANGELOG.md
-# and creates a draft release → the four platforms build in parallel and upload their installers →
-# the draft is published only if every build succeeded. If any platform fails the release stays a
+# and creates a draft release → the four platforms build in parallel and upload their installers
+# plus signed updater bundles → `publish` assembles latest.json (what installed copies check for
+# updates, via releases/latest) and publishes the draft — only if every build succeeded. If any platform fails the release stays a
 # draft instead of going out with a platform missing; fix it and re-run the failed jobs.
 # Tags containing `-` (e.g. v0.2.0-beta.1) are published as pre-releases.
 #
@@ -133,14 +134,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - run: npm ci
+      # Signed updater bundles for the self-update. Switched on here only: local builds have no
+      # signing key, and asking for signatures without one fails the build. The key lives in the
+      # repository secrets TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD; its
+      # public half is plugins.updater.pubkey in tauri.conf.json
+      - name: Turn on updater bundles
+        shell: bash
+        run: |
+          node -e '
+            const f = "src-tauri/tauri.conf.json", fs = require("fs"), c = JSON.parse(fs.readFileSync(f, "utf8"));
+            c.bundle.createUpdaterArtifacts = true;
+            fs.writeFileSync(f, JSON.stringify(c, null, 2));
+          '
       # With an empty releaseId (manual run) this only builds, nothing is uploaded
       - name: Build
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           args: ${{ matrix.args }}
           releaseId: ${{ needs.prepare.outputs.release_id }}
+          # latest.json is written once, in `publish`, rather than merged by four parallel builds
+          includeUpdaterJson: false
       - name: Upload installers
         if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v7
@@ -156,6 +173,12 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
+      - name: Assemble latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+        run: node scripts/updater-manifest.mjs
       - name: Draft → published
         env:
           GH_TOKEN: ${{ github.token }}

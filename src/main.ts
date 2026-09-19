@@ -17,6 +17,7 @@ import { clearPrint, exportPdf, preparePrint } from './features/export';
 import { countText, formatCounts } from './features/wordcount';
 import { installFocusGuard } from './app/focus-guard';
 import { installShortcuts } from './app/shortcuts';
+import { offerUpdate } from './app/update';
 import { runSmoke } from './dev/smoke';
 
 /* getElementById's return type is fixed to HTMLElement, so every SVG lookup would need a double
@@ -379,6 +380,9 @@ async function boot() {
       return pages;
     },
   });
+
+  // after everything else is up; a check that hangs or fails holds nothing up
+  void offerUpdate(platform);
 
   // test/debug handle — the app is driven through this in the behaviour suite
   window.__irori = {

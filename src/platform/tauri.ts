@@ -5,7 +5,7 @@
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
-import type { Platform, Settings, Stat } from './types';
+import type { Platform, Settings, Stat, UpdateInfo } from './types';
 
 export class TauriPlatform implements Platform {
   readonly kind = 'tauri' as const;
@@ -83,6 +83,12 @@ export class TauriPlatform implements Platform {
         alert('关闭窗口失败：' + String(err));
       }
     });
+  }
+  checkUpdate() {
+    return invoke<UpdateInfo | null>('check_update');
+  }
+  installUpdate() {
+    return invoke<void>('install_update');
   }
   async loadSettings() {
     return invoke<Partial<Settings> | null>('load_settings');
