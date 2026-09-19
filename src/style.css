@@ -255,6 +255,7 @@ body.menuopen .drawer{transform:translateX(0);}
 .ubtn.primary{background:var(--accent);color:#fff;}
 .ubtn:disabled{opacity:.5;cursor:default;}
 .ubtn[hidden]{display:none;}
+.verv{flex:1;font-size:13px;color:var(--sub);}
 .conflict{position:fixed;inset:0;background:rgba(40,32,24,.28);display:none;align-items:center;justify-content:center;z-index:40;}
 .conflict.open{display:flex;}
 .cbox{background:var(--rail);border:1px solid var(--line);border-radius:14px;padding:22px 24px;width:420px;max-width:90vw;box-shadow:0 24px 60px rgba(120,80,40,.24);font-family:var(--font-body);}

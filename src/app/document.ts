@@ -205,4 +205,19 @@ export class DocumentSession {
     // throw it away, and that has to be an explicit answer, not a silent no-op
     return this.platform.confirm('这份文档还没有保存过，关闭就会丢失。确定关闭吗？');
   }
+
+  /** the app is restarting into an update: true = this window may go. A named file is saved in
+      place, as closing does; an unnamed one with text asks to be saved first — it only lives in
+      memory — and declining calls the restart off. */
+  async prepareRestart(): Promise<boolean> {
+    if (!this.dirty) return true;
+    if (this.path && !this.missing) {
+      await this.save();
+      return !this.dirty;
+    }
+    if (!this.path && this.text.trim() === '') return true; // a blank page has nothing to lose
+    const why = this.path ? '这份文档的文件已不存在' : '这份文档还没有保存过';
+    if (!(await this.platform.confirm(`${why}。保存之后，Irori 会重启以完成更新。`, '保存'))) return false;
+    return this.save();
+  }
 }

@@ -34,17 +34,17 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export type Stat = { mtimeMs: number; size: number } | null;
 
-/** a newer published release; `quits`: installing closes the app (Windows hands over to the
-    installer), elsewhere the new version runs from the next launch */
-export type UpdateInfo = { version: string; quits: boolean };
+/** a newer published release */
+export type UpdateInfo = { version: string };
+
+/** a window's answer when the app is about to restart: may it go, and which file to reopen */
+export type RestartReady = { ok: boolean; path: string | null };
 
 export interface Platform {
   readonly kind: 'tauri' | 'web';
 
   /** the file this window was asked to open (file association / CLI arg), if any */
   startupPath(): Promise<string | null>;
-  /** the host handed this window a file after it was already running (macOS open-with) */
-  onOpenFile(handler: (path: string) => void): void;
 
   /** set by scripts/smoke.sh: write a boot report here and quit (null otherwise) */
   smokeOut(): Promise<{ out: string; menu: boolean; hold: boolean; dialog: boolean; close: boolean; pdf: boolean } | null>;
@@ -52,8 +52,8 @@ export interface Platform {
   windowRect(): Promise<{ x: number; y: number; w: number; h: number } | null>;
 
   openDialog(): Promise<string | null>;
-  /** a yes/no question (used when closing would throw away an unnamed buffer) */
-  confirm(message: string): Promise<boolean>;
+  /** a yes/no question; `ok` labels the yes button (default 关闭 — the question closing asks) */
+  confirm(message: string, ok?: string): Promise<boolean>;
   /** `kind` picks the file type offered: Markdown (default) or a PDF export */
   saveDialog(suggestedName: string, kind?: 'markdown' | 'pdf'): Promise<string | null>;
 
@@ -82,11 +82,18 @@ export interface Platform {
   /** ask the host to confirm before the window closes while there are unsaved edits */
   onCloseRequested(handler: () => boolean | Promise<boolean>): void;
 
-  /** a newer release, if one is published — null when up to date, offline, or already offered
-      in another window (the check runs once per app run) */
-  checkUpdate(): Promise<UpdateInfo | null>;
-  /** download, verify and install the release checkUpdate found */
-  installUpdate(): Promise<void>;
+  appVersion(): Promise<string>;
+  /** a newer release, if one is published. The automatic check runs once per app run, is
+      offered in one window only and says nothing on failure (null); a `manual` one always asks
+      and rejects with the reason it could not. */
+  checkUpdate(manual: boolean): Promise<UpdateInfo | null>;
+  /** download and verify the release checkUpdate found; nothing is installed yet */
+  downloadUpdate(): Promise<void>;
+  /** install it and restart into it, after every window has got ready (onPrepareRestart);
+      false if one declined, and then nothing was installed */
+  applyUpdate(): Promise<boolean>;
+  /** the app is about to restart: save what needs saving, and answer */
+  onPrepareRestart(handler: () => Promise<RestartReady>): void;
 
   loadSettings(): Promise<Partial<Settings> | null>;
   saveSettings(settings: Settings): Promise<void>;

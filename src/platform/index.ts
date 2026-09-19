@@ -6,7 +6,7 @@ declare global {
     __TAURI_INTERNALS__?: unknown;
     __irori?: Record<string, unknown>;
     /** set by the behaviour tests before boot: files on the virtual disk + which to open */
-    __iroriSeed?: { files?: Record<string, string>; images?: Record<string, string>; startup?: string | null; settings?: unknown; update?: { version: string; quits: boolean } };
+    __iroriSeed?: { files?: Record<string, string>; images?: Record<string, string>; startup?: string | null; settings?: unknown; update?: { version: string } };
   }
 }
 

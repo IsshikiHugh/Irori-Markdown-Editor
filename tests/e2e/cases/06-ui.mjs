@@ -459,16 +459,17 @@ export const cases = [
   },
   {
     id: 'B-85',
-    name: 'A newer release is offered in a corner note; nothing installs without a click, and the text keeps focus',
+    name: 'A newer release is offered in a corner note; nothing downloads without a click, and the text keeps focus',
     async run(t, ctx) {
       const shown = (p) => p.evaluate(() => getComputedStyle(document.getElementById('update')).display !== 'none');
       const text = (p) => p.evaluate(() => document.getElementById('utext').textContent);
+      const host = (p, f) => p.evaluate(f);
 
       const quiet = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md' });
       await sleep(200);
       t.ok('up to date: no note', !(await shown(quiet)), '');
 
-      const page = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md', update: { version: '9.9.9', quits: false } });
+      const page = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md', update: { version: '9.9.9' } });
       await sleep(200);
       t.ok('note shows', await shown(page), '');
       t.ok('names the version', (await text(page)).includes('9.9.9'), await text(page));
@@ -477,28 +478,101 @@ export const cases = [
         return { left: r.left, bottom: innerHeight - r.bottom };
       });
       t.ok('sits in the bottom-left corner', box.left < 40 && box.bottom < 40, JSON.stringify(box));
-      t.eq('nothing installed yet', await page.evaluate(() => window.__irori.platform.installs), 0);
+      t.eq('nothing downloaded yet', await host(page, () => window.__irori.platform.downloads), 0);
 
-      // a failure is reported and can be retried
-      await page.evaluate(() => (window.__irori.platform.installError = 'offline'));
+      // a failed download is reported and can be retried
+      await host(page, () => (window.__irori.platform.downloadError = 'offline'));
       await page.click('#uyes');
       await sleep(300);
       t.ok('failure is reported', (await text(page)).includes('offline'), await text(page));
-      await page.evaluate(() => (window.__irori.platform.installError = null));
+      t.eq('and nothing restarted', await host(page, () => window.__irori.platform.restarts.length), 0);
+      await host(page, () => (window.__irori.platform.downloadError = null));
       await page.click('#uyes');
       await sleep(300);
-      t.eq('retry installs', await page.evaluate(() => window.__irori.platform.installs), 2);
-      t.ok('says when it takes effect', (await text(page)).includes('下次打开'), await text(page));
-      t.ok('the text still has focus', await page.evaluate(() => window.__irori.view.hasFocus), '');
+      t.eq('retry downloads', await host(page, () => window.__irori.platform.downloads), 2);
+      t.eq('then restarts by itself, reopening the file', await host(page, () => window.__irori.platform.restarts), ['/n/a.md']);
+      t.ok('the text still has focus', await host(page, () => window.__irori.view.hasFocus), '');
 
       // "later" just puts it away
-      const later = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md', update: { version: '9.9.9', quits: true } });
+      const later = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md', update: { version: '9.9.9' } });
       await sleep(200);
-      t.ok('warns that Windows closes the app', (await text(later)).includes('关闭'), await text(later));
       await later.click('#uno');
       await sleep(100);
       t.ok('"later" hides it', !(await shown(later)), '');
-      t.eq('and installs nothing', await later.evaluate(() => window.__irori.platform.installs), 0);
+      t.eq('and downloads nothing', await host(later, () => window.__irori.platform.downloads), 0);
+    },
+  },
+  {
+    id: 'B-86',
+    name: 'The drawer shows the version and checks for updates on demand',
+    async run(t, ctx) {
+      const page = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md' });
+      await sleep(200);
+      t.eq('version shown', await page.evaluate(() => document.getElementById('verv').textContent), '0.0.0-web');
+      const toastAfterCheck = async () => {
+        await page.click('#hair');
+        await sleep(320);
+        await page.click('#updbtn');
+        await sleep(200);
+        return page.evaluate(() => document.getElementById('toast').textContent);
+      };
+      t.eq('up to date says so', await toastAfterCheck(), '已是最新版本');
+      await page.evaluate(() => (window.__irori.platform.checkError = 'rate limited'));
+      t.ok('a failed check says why', (await toastAfterCheck()).includes('rate limited'), '');
+      await page.evaluate(() => {
+        window.__irori.platform.checkError = null;
+        window.__irori.platform.update = { version: '9.9.9' };
+      });
+      await toastAfterCheck();
+      t.ok('a release found is offered', await page.evaluate(() => document.getElementById('update').classList.contains('open')), '');
+      t.ok('and the drawer gets out of the way', !(await page.evaluate(() => document.body.classList.contains('menuopen'))), '');
+    },
+  },
+  {
+    id: 'B-87',
+    name: 'Before the update restart a named file is saved; an unsaved page asks to be saved, and declining calls the restart off',
+    async run(t, ctx) {
+      const host = (p, f) => p.evaluate(f);
+      const restart = async (p) => {
+        await p.click('#uyes');
+        await sleep(400);
+        return host(p, () => window.__irori.platform.restarts);
+      };
+
+      // a named file with unsaved edits is saved in place (autosave off, so only the restart saves it)
+      const named = await ctx.open({
+        files: { '/n/a.md': 'old' },
+        startup: '/n/a.md',
+        settings: { autosave: false },
+        update: { version: '9.9.9' },
+      });
+      await sleep(200);
+      await named.click('.cm-content');
+      await named.keyboard.type(' more');
+      t.eq('restarts, reopening the file', await restart(named), ['/n/a.md']);
+      t.ok('edit saved first', (await host(named, () => window.__irori.platform.files.get('/n/a.md').text)).includes('more'), '');
+
+      // an unsaved page: declined → no restart; accepted → saved, then restart
+      const blank = await ctx.open({ update: { version: '9.9.9' } });
+      await sleep(200);
+      await blank.click('.cm-content');
+      await blank.keyboard.type('草稿');
+      await host(blank, () => (window.__irori.platform.confirmAnswer = false));
+      t.eq('declined: no restart', await restart(blank), []);
+      t.ok('asked to save', (await host(blank, () => window.__irori.platform.confirmed.at(-1))).includes('保存'), '');
+      t.ok('offers to try again', (await host(blank, () => document.getElementById('uyes').textContent)) === '重启并更新', '');
+      await host(blank, () => {
+        window.__irori.platform.confirmAnswer = true;
+        window.__irori.platform.dialogQueue.push('/n/草稿.md');
+      });
+      t.eq('accepted: saved, then restarts into it', await restart(blank), ['/n/草稿.md']);
+      t.eq('the draft is on disk', await host(blank, () => window.__irori.platform.files.get('/n/草稿.md')?.text), '草稿');
+
+      // an empty blank page has nothing to save
+      const empty = await ctx.open({ update: { version: '9.9.9' } });
+      await sleep(200);
+      t.eq('empty page: restarts without asking', await restart(empty), [null]);
+      t.eq('no question asked', await host(empty, () => window.__irori.platform.confirmed.length), 0);
     },
   },
 ];

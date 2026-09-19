@@ -4,40 +4,57 @@
 //! experience is made of lives in the web layer, so swapping this shell out (the escape
 //! hatch if Linux/WebKitGTK ever becomes untenable) does not touch the editor.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{mpsc, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-#[cfg(target_os = "macos")]
-use tauri::Emitter; // only macOS "open with" events need to send the path to a new window
-use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_updater::UpdaterExt;
 
 #[cfg(target_os = "macos")]
 mod pdf;
 
-/// The file this window was launched with (CLI argument, or a macOS "open with" event).
+/// The file each window opens at boot, by window label, taken by the window when it asks. The
+/// first window's comes from the command line, a macOS "open with" at launch, or the documents
+/// that were open before an update restart; any later window is given its file as it is made.
 #[derive(Default)]
-struct Startup(Mutex<Option<String>>);
+struct Startup {
+    paths: Mutex<HashMap<String, String>>,
+    /// the first window has booted, so a file that arrives now needs a window of its own
+    main_booted: AtomicBool,
+}
 
-/// Self-update. The check runs once per app run and only the first window to ask is told — with
-/// one window per document, every other window would otherwise repeat the same offer. The
-/// release found is kept here until the person accepts it.
+/// Labels are never reused: "w" + the count of open windows would collide once one had closed.
+static NEXT_WINDOW: AtomicUsize = AtomicUsize::new(2);
+
+/// Self-update. The automatic check runs once per app run and only the first window to ask is
+/// told — with one window per document, every other window would otherwise repeat the same
+/// offer. The release found, and once downloaded its bytes, wait here until the restart.
 #[derive(Default)]
 struct Updates {
     asked: AtomicBool,
     found: Mutex<Option<tauri_plugin_updater::Update>>,
+    bytes: Mutex<Option<Vec<u8>>>,
+    /// the window asked to get ready for the restart answers through this
+    reply: Mutex<Option<mpsc::Sender<Ready>>>,
 }
 
 #[derive(Serialize)]
 struct UpdateInfo {
     version: String,
-    /// installing closes the app (Windows hands over to the installer); elsewhere the new
-    /// version simply runs from the next launch
-    quits: bool,
+}
+
+/// A window's answer to "the app is about to restart": whether it may go, and which file to
+/// open again afterwards.
+#[derive(Deserialize)]
+struct Ready {
+    ok: bool,
+    path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -54,8 +71,11 @@ fn err<E: std::fmt::Display>(e: E) -> String {
 }
 
 #[tauri::command]
-fn startup_path(state: State<'_, Startup>) -> Option<String> {
-    state.0.lock().ok()?.clone()
+fn startup_path(window: tauri::Window, state: State<'_, Startup>) -> Option<String> {
+    if window.label() == "main" {
+        state.main_booted.store(true, Ordering::SeqCst);
+    }
+    state.paths.lock().ok()?.remove(window.label())
 }
 
 /// Wait for a native dialog without blocking the thread that has to *run* it.
@@ -117,13 +137,13 @@ async fn save_dialog(
 }
 
 #[tauri::command]
-async fn confirm_dialog(app: tauri::AppHandle, message: String) -> bool {
+async fn confirm_dialog(app: tauri::AppHandle, message: String, ok: Option<String>) -> bool {
     wait_for(|tx| {
         app.dialog()
             .message(message)
             .title("Irori")
             .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancelCustom(
-                "关闭".into(),
+                ok.unwrap_or_else(|| "关闭".into()),
                 "取消".into(),
             ))
             .show(move |answer| {
@@ -134,43 +154,143 @@ async fn confirm_dialog(app: tauri::AppHandle, message: String) -> bool {
     .unwrap_or(false)
 }
 
-/// Whether a newer release is published. Quiet on every failure (offline, rate-limited, no
-/// release for this platform): an update check must never be in the way of writing. Debug
-/// builds and smoke runs never ask.
+/// Whether a newer release is published. The automatic check (at launch) is quiet on every
+/// failure — offline, rate-limited, no release for this platform — since an update check must
+/// never be in the way of writing, and it never runs in debug builds or smoke runs. A `manual`
+/// check (the drawer's button) always asks and reports what went wrong.
 #[tauri::command]
-async fn check_update(app: tauri::AppHandle) -> Option<UpdateInfo> {
+async fn check_update(app: tauri::AppHandle, manual: bool) -> Res<Option<UpdateInfo>> {
     let updates = app.state::<Updates>();
-    if cfg!(debug_assertions)
-        || std::env::var_os("IRORI_SMOKE_OUT").is_some()
-        || updates.asked.swap(true, Ordering::SeqCst)
-    {
-        return None;
+    if cfg!(debug_assertions) {
+        return if manual {
+            Err("开发版本不检查更新".into())
+        } else {
+            Ok(None)
+        };
     }
-    let update = app.updater().ok()?.check().await.ok()??;
+    if !manual
+        && (std::env::var_os("IRORI_SMOKE_OUT").is_some()
+            || updates.asked.swap(true, Ordering::SeqCst))
+    {
+        return Ok(None);
+    }
+    let Some(update) = app.updater().map_err(err)?.check().await.map_err(err)? else {
+        return Ok(None);
+    };
     let info = UpdateInfo {
         version: update.version.clone(),
-        quits: cfg!(windows),
     };
-    *updates.found.lock().ok()? = Some(update);
-    Some(info)
+    let mut found = updates.found.lock().map_err(err)?;
+    if found.as_ref().map(|u| &u.version) != Some(&update.version) {
+        *updates.bytes.lock().map_err(err)? = None; // bytes of an older find are of no use
+    }
+    *found = Some(update);
+    Ok(Some(info))
 }
 
-/// Download, verify (against the public key in tauri.conf.json) and install the release that
-/// `check_update` found. On failure it stays around, so the person can try again.
+/// Download the release `check_update` found and verify it against the public key in
+/// tauri.conf.json. Nothing is installed yet: that waits until every window is ready to restart.
 #[tauri::command]
-async fn install_update(app: tauri::AppHandle) -> Res<()> {
+async fn download_update(app: tauri::AppHandle) -> Res<()> {
     let updates = app.state::<Updates>();
+    if updates.bytes.lock().map_err(err)?.is_some() {
+        return Ok(());
+    }
     let update = updates
         .found
         .lock()
         .map_err(err)?
-        .take()
+        .clone()
         .ok_or("没有可安装的更新")?;
-    let result = update.download_and_install(|_, _| {}, || {}).await;
-    if result.is_err() {
-        *updates.found.lock().map_err(err)? = Some(update);
+    let bytes = update.download(|_, _| {}, || {}).await.map_err(err)?;
+    *updates.bytes.lock().map_err(err)? = Some(bytes);
+    Ok(())
+}
+
+/// Install the downloaded update and restart into it, with the same documents open again.
+///
+/// Every window is asked in turn — brought to the front first, since it may need to ask its own
+/// question — to get ready: a named file is saved in place, an unnamed one with text asks to be
+/// saved. If any window declines, nothing is installed and `false` comes back; the download is
+/// kept for another try. (Windows: the installer takes over, closes the app and starts the new
+/// version itself.)
+#[tauri::command]
+async fn apply_update(app: tauri::AppHandle) -> Res<bool> {
+    let updates = app.state::<Updates>();
+    let mut windows: Vec<_> = app.webview_windows().into_iter().collect();
+    // the first window first, then the rest in the order they were opened
+    windows.sort_by_key(|(label, _)| label.trim_start_matches('w').parse::<usize>().unwrap_or(0));
+    let mut paths = Vec::new();
+    for (label, win) in windows {
+        let (tx, rx) = mpsc::channel();
+        *updates.reply.lock().map_err(err)? = Some(tx);
+        let _ = win.set_focus();
+        app.emit_to(label.as_str(), "irori://prepare-restart", ())
+            .map_err(err)?;
+        // generous: the window may be waiting on a save panel
+        let ready = tauri::async_runtime::spawn_blocking(move || {
+            rx.recv_timeout(Duration::from_secs(600)).ok()
+        })
+        .await
+        .ok()
+        .flatten();
+        match ready {
+            Some(Ready { ok: true, path }) => paths.extend(path),
+            _ => return Ok(false),
+        }
     }
-    result.map_err(err)
+
+    let update = updates
+        .found
+        .lock()
+        .map_err(err)?
+        .clone()
+        .ok_or("没有可安装的更新")?;
+    let bytes = updates
+        .bytes
+        .lock()
+        .map_err(err)?
+        .take()
+        .ok_or("更新还没有下载")?;
+    fs::write(
+        reopen_file(&app)?,
+        serde_json::to_string(&paths).map_err(err)?,
+    )
+    .map_err(err)?;
+    if let Err(e) = update.install(&bytes) {
+        let _ = fs::remove_file(reopen_file(&app)?);
+        *updates.bytes.lock().map_err(err)? = Some(bytes);
+        return Err(err(e));
+    }
+    app.restart()
+}
+
+/// A window's answer to `irori://prepare-restart`.
+#[tauri::command]
+fn restart_ready(state: State<'_, Updates>, ok: bool, path: Option<String>) {
+    if let Some(tx) = state.reply.lock().ok().and_then(|mut r| r.take()) {
+        let _ = tx.send(Ready { ok, path });
+    }
+}
+
+/// The documents to open again after an update restart.
+fn reopen_file(app: &tauri::AppHandle) -> Res<PathBuf> {
+    let dir = app.path().app_config_dir().map_err(err)?;
+    fs::create_dir_all(&dir).map_err(err)?;
+    Ok(dir.join("reopen.json"))
+}
+
+/// Read and forget the reopen list: a crash on the next launch must not keep bringing it back.
+fn take_reopen(app: &tauri::AppHandle) -> Option<Vec<String>> {
+    let file = reopen_file(app).ok()?;
+    let raw = fs::read_to_string(&file).ok()?;
+    let _ = fs::remove_file(file);
+    serde_json::from_str(&raw).ok()
+}
+
+#[tauri::command]
+fn app_version(app: tauri::AppHandle) -> String {
+    app.package_info().version.to_string()
 }
 
 /// Print the page to PDF. With a `path` (macOS) the file is written directly, no panel shown;
@@ -279,12 +399,25 @@ fn window(
     b
 }
 
-#[tauri::command]
-fn new_window(app: tauri::AppHandle) -> Res<()> {
-    let label = format!("w{}", app.webview_windows().len() + 1);
-    let win = window(&app, label).build().map_err(err)?;
+/// A new window, opening `path` when given (a blank page otherwise).
+fn open_window(app: &tauri::AppHandle, path: Option<String>) -> Res<()> {
+    let label = format!("w{}", NEXT_WINDOW.fetch_add(1, Ordering::SeqCst));
+    if let Some(path) = path {
+        let startup = app.state::<Startup>();
+        startup
+            .paths
+            .lock()
+            .map_err(err)?
+            .insert(label.clone(), path);
+    }
+    let win = window(app, label).build().map_err(err)?;
     let _ = win.set_focus();
     Ok(())
+}
+
+#[tauri::command]
+fn new_window(app: tauri::AppHandle) -> Res<()> {
+    open_window(&app, None)
 }
 
 /// ⌘W: takes the same path as clicking the red light (close_requested → unsaved-changes confirm)
@@ -420,7 +553,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(Startup(Mutex::new(arg_path())))
+        .manage(Startup::default())
         .manage(Updates::default())
         .invoke_handler(tauri::generate_handler![
             startup_path,
@@ -430,8 +563,11 @@ pub fn run() {
             confirm_dialog,
             save_dialog,
             print_pdf,
+            app_version,
             check_update,
-            install_update,
+            download_update,
+            apply_update,
+            restart_ready,
             read_text,
             write_text,
             write_binary,
@@ -445,6 +581,24 @@ pub fn run() {
             save_settings
         ])
         .setup(|app| {
+            // the first window opens the file it was launched with, or — after an update
+            // restart — the documents that were open, the rest of them in windows of their own
+            // (a restart passes the original command line again, so after one the list — not
+            // the file the app was first launched with — is what was open)
+            let mut paths = take_reopen(app.handle())
+                .unwrap_or_else(|| arg_path().into_iter().collect())
+                .into_iter();
+            if let Some(first) = paths.next() {
+                let startup = app.state::<Startup>();
+                startup
+                    .paths
+                    .lock()
+                    .map_err(err)?
+                    .insert("main".into(), first);
+            }
+            for path in paths {
+                open_window(app.handle(), Some(path))?;
+            }
             // Make the webview first responder: otherwise keyboard events don't reach the page
             // right after the window comes up, and shortcuts only work once the user clicks into
             // the text
@@ -462,24 +616,20 @@ pub fn run() {
             if let tauri::RunEvent::Opened { urls } = _event {
                 let app = _app;
                 for url in urls {
-                    if let Ok(path) = url.to_file_path() {
-                        let path = path.to_string_lossy().to_string();
-                        if let Some(state) = app.try_state::<Startup>() {
-                            let mut slot = state.0.lock().unwrap();
-                            if slot.is_none() {
-                                *slot = Some(path.clone());
+                    let Ok(path) = url.to_file_path() else {
+                        continue;
+                    };
+                    let path = path.to_string_lossy().to_string();
+                    let startup = app.state::<Startup>();
+                    if !startup.main_booted.load(Ordering::SeqCst) {
+                        if let Ok(mut paths) = startup.paths.lock() {
+                            if !paths.contains_key("main") {
+                                paths.insert("main".into(), path);
                                 continue; // the first window will pick it up at boot
                             }
                         }
-                        let label = format!("w{}", app.webview_windows().len() + 1);
-                        if let Ok(win) =
-                            WebviewWindowBuilder::new(app, label, WebviewUrl::default())
-                                .title("Irori")
-                                .build()
-                        {
-                            let _ = win.emit("irori://open-file", path);
-                        }
                     }
+                    let _ = open_window(app, Some(path));
                 }
             }
         });

@@ -4,7 +4,7 @@
    so it has to behave like a real disk (paths, directories, mtimes, name collisions,
    external modification). Tests seed and inspect it through `window.__irori`. */
 
-import type { Platform, Settings, Stat, UpdateInfo } from './types';
+import type { Platform, RestartReady, Settings, Stat, UpdateInfo } from './types';
 import { dirname, normalize } from './paths';
 
 type Entry = { text?: string; bytes?: Uint8Array; mtimeMs: number; dir?: boolean };
@@ -34,10 +34,6 @@ export class WebPlatform implements Platform {
 
   async startupPath() {
     return this.startup;
-  }
-  openFileHandler: ((path: string) => void) | null = null;
-  onOpenFile(handler: (path: string) => void) {
-    this.openFileHandler = handler;
   }
   async smokeOut() {
     return null;
@@ -100,17 +96,33 @@ export class WebPlatform implements Platform {
   async newWindow() {
     this.newWindows++;
   }
-  /** tests set the release to offer; installs counts accepted offers, installError makes one fail */
+  /** tests set the release to offer and can make a check or a download fail; `restarts` holds
+      what each restart would have reopened */
   update: UpdateInfo | null = null;
-  installs = 0;
-  installError: string | null = null;
-  async checkUpdate() {
+  checkError: string | null = null;
+  downloads = 0;
+  downloadError: string | null = null;
+  restarts: (string | null)[] = [];
+  prepareHandler: (() => Promise<RestartReady>) | null = null;
+  async appVersion() {
+    return '0.0.0-web';
+  }
+  async checkUpdate(manual: boolean) {
+    if (manual && this.checkError) throw new Error(this.checkError);
     return this.update;
   }
-  async installUpdate() {
-    this.installs++;
+  async downloadUpdate() {
+    this.downloads++;
     await new Promise((r) => setTimeout(r, 150)); // a download takes a moment
-    if (this.installError) throw new Error(this.installError);
+    if (this.downloadError) throw new Error(this.downloadError);
+  }
+  async applyUpdate() {
+    const ready = (await this.prepareHandler?.()) ?? { ok: true, path: null };
+    if (ready.ok) this.restarts.push(ready.path);
+    return ready.ok;
+  }
+  onPrepareRestart(handler: () => Promise<RestartReady>) {
+    this.prepareHandler = handler;
   }
   closeRequests = 0;
   async closeWindow() {

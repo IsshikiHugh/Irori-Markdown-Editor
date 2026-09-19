@@ -4,17 +4,14 @@
 
 import { invoke, convertFileSrc } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { listen } from '@tauri-apps/api/event';
-import type { Platform, Settings, Stat, UpdateInfo } from './types';
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
+import type { Platform, RestartReady, Settings, Stat, UpdateInfo } from './types';
 
 export class TauriPlatform implements Platform {
   readonly kind = 'tauri' as const;
 
   startupPath() {
     return invoke<string | null>('startup_path');
-  }
-  onOpenFile(handler: (path: string) => void) {
-    void listen<string>('irori://open-file', (e) => handler(e.payload));
   }
   smokeOut() {
     return invoke<{ out: string; menu: boolean; hold: boolean; dialog: boolean; close: boolean; pdf: boolean } | null>('smoke_out');
@@ -25,8 +22,8 @@ export class TauriPlatform implements Platform {
   openDialog() {
     return invoke<string | null>('open_dialog');
   }
-  confirm(message: string) {
-    return invoke<boolean>('confirm_dialog', { message });
+  confirm(message: string, ok?: string) {
+    return invoke<boolean>('confirm_dialog', { message, ok });
   }
   saveDialog(suggestedName: string, kind: 'markdown' | 'pdf' = 'markdown') {
     return invoke<string | null>('save_dialog', { suggestedName, kind });
@@ -84,11 +81,28 @@ export class TauriPlatform implements Platform {
       }
     });
   }
-  checkUpdate() {
-    return invoke<UpdateInfo | null>('check_update');
+  appVersion() {
+    return invoke<string>('app_version');
   }
-  installUpdate() {
-    return invoke<void>('install_update');
+  checkUpdate(manual: boolean) {
+    return invoke<UpdateInfo | null>('check_update', { manual });
+  }
+  downloadUpdate() {
+    return invoke<void>('download_update');
+  }
+  applyUpdate() {
+    return invoke<boolean>('apply_update');
+  }
+  onPrepareRestart(handler: () => Promise<RestartReady>) {
+    // addressed to this window only: the shell asks the windows one at a time
+    void getCurrentWebviewWindow().listen('irori://prepare-restart', async () => {
+      let ready: RestartReady = { ok: false, path: null };
+      try {
+        ready = await handler();
+      } finally {
+        await invoke('restart_ready', ready);
+      }
+    });
   }
   async loadSettings() {
     return invoke<Partial<Settings> | null>('load_settings');

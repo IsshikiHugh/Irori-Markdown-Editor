@@ -17,7 +17,7 @@ import { clearPrint, exportPdf, preparePrint } from './features/export';
 import { countText, formatCounts } from './features/wordcount';
 import { installFocusGuard } from './app/focus-guard';
 import { installShortcuts } from './app/shortcuts';
-import { offerUpdate } from './app/update';
+import { createUpdates } from './app/update';
 import { runSmoke } from './dev/smoke';
 
 /* getElementById's return type is fixed to HTMLElement, so every SVG lookup would need a double
@@ -330,18 +330,6 @@ async function boot() {
   installShortcuts({ platform, doc, toast, setBuffer, exportPdf: exportAsPdf });
 
   platform.onCloseRequested(() => doc.requestClose());
-  // a file handed to this window while it was already open (macOS "open with")
-  platform.onOpenFile((path) => {
-    void (async () => {
-      try {
-        setBuffer(await doc.open(path));
-        toast('已打开 ' + doc.name);
-      } catch (err) {
-        toast('打开失败：' + (err as Error).message);
-      }
-    })();
-  });
-
   /* ---------- open the file this window was launched with ---------- */
   const startup = await platform.startupPath();
   if (startup) {
@@ -382,7 +370,8 @@ async function boot() {
   });
 
   // after everything else is up; a check that hangs or fails holds nothing up
-  void offerUpdate(platform);
+  const updates = createUpdates(platform, doc, toast);
+  void updates.auto();
 
   // test/debug handle — the app is driven through this in the behaviour suite
   window.__irori = {
