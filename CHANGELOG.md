@@ -1,5 +1,22 @@
 # 更新记录
 
+## v0.1.10 — 2026-09-19
+
+### 书写
+
+- **代码块**：以 ` ``` ` 或 `~~~` 围起来的代码块，整段显示为一块等宽字体的代码底色，围栏与语言名以浅色显示。代码块中的内容不再被当作 Markdown：`#` 注释不会变成标题、也不进目录，`-` 开头的行不是列表、回车不会续写，表格、链接、图片与粗体都按原文显示。缩略图与导出的 PDF 中同样如此。
+
+### 安装
+
+- 已安装 v0.1.7 或更新版本的，打开 Irori 后会收到更新提示，点「更新」即可。
+- **macOS**：`Irori_0.1.10_aarch64.dmg`（Apple Silicon）、`Irori_0.1.10_x64.dmg`（Intel）
+- **Windows**：`Irori_0.1.10_x64-setup.exe` 或 `Irori_0.1.10_x64_en-US.msi`，任选其一
+- **Linux**：`.deb`、`.rpm` 与 `.AppImage`
+
+安装包尚未签名。macOS 若提示应用「已损坏」，可在终端执行
+`xattr -dr com.apple.quarantine /Applications/Irori.app` 后再打开；
+Windows 若出现 SmartScreen 提示，选择「更多信息 → 仍要运行」。
+
 ## v0.1.9 — 2026-09-19
 
 ### 修复
