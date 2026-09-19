@@ -1,4 +1,5 @@
-/* Source decoration: markers are always visible and always editable; every line's text is exactly its Markdown source. */
+/* Source decoration: wherever the caret is, markers are visible and editable and every line's text is exactly its
+   Markdown source; away from it, pictures, tables and links show rendered. */
 import { docText, lineClasses, setDoc, sleep } from '../harness.mjs';
 
 const SAMPLE = [
@@ -40,6 +41,13 @@ export const cases = [
     name: 'Inline decoration: bold/italic/bold-italic/code/link, asterisks do not disappear',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': SAMPLE }, startup: '/n/a.md' });
+      // the caret at the link: it shows as source too (away from the caret only its text shows, B-89)
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        const line = v.state.doc.line(5);
+        v.dispatch({ selection: { anchor: line.from + line.text.indexOf('[') } });
+      });
+      await sleep(50);
       const found = await page.evaluate(() => {
         const line = [...document.querySelectorAll('.cm-content .cm-line')][4];
         const q = (s) => [...line.querySelectorAll(s)].map((e) => e.textContent);
@@ -197,6 +205,9 @@ export const cases = [
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': SAMPLE }, startup: '/n/a.md' });
       const inEditor = await page.evaluate(() => {
+        // with everything selected every line shows source (links included, see B-89)
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: 0, head: v.state.doc.length } });
         // join the rendered lines back together — what a person would copy out
         return [...document.querySelectorAll('.cm-content .cm-line')].map((l) => l.textContent).join('\n');
       });
@@ -361,6 +372,128 @@ export const cases = [
         return { pos, from: line.from, to: line.to };
       });
       t.ok('a click on the wrapped row lands in that item', at.pos > at.from + 4 && at.pos <= at.to, JSON.stringify(at));
+    },
+  },
+  {
+    id: 'B-88',
+    name: 'A table away from the caret shows as a table; the caret in it (a click on a cell, or arrow keys) turns it back into source',
+    async run(t, ctx) {
+      const md = ['开头一行', '', '| 名称 | 数量 |', '| :-- | --: |', '| **苹果** | 3 |', '| [梨](https://x.y) | 12 |', '', '结尾一行'].join('\n');
+      const page = await ctx.open({ files: { '/n/t.md': md }, startup: '/n/t.md' });
+      await sleep(150);
+      const shown = () =>
+        page.evaluate(() => {
+          const tbl = document.querySelector('.cm-content .mdtbl');
+          return {
+            table: !!tbl,
+            cells: tbl ? [...tbl.querySelectorAll('th,td')].map((c) => c.innerText.trim()) : [],
+            right: tbl ? getComputedStyle(tbl.querySelectorAll('th')[1]).textAlign : '',
+            src: [...document.querySelectorAll('.cm-content .cm-line.tsrc')].length,
+          };
+        });
+      let s = await shown();
+      t.ok('rendered as a table', s.table, '');
+      t.eq('cells show text without markup', s.cells, ['名称', '数量', '苹果', '3', '梨', '12']);
+      t.eq('alignment from the delimiter row', s.right, 'right');
+      t.eq('no source rows', s.src, 0);
+      t.eq('the document is untouched', await docText(page), md);
+
+      // a click on a cell puts the caret at that cell's text
+      const cell = await page.evaluate(() => {
+        const td = [...document.querySelectorAll('.mdtbl td')][3];
+        const r = td.getBoundingClientRect();
+        return { x: r.left + 6, y: r.top + r.height / 2 };
+      });
+      await page.mouse.click(cell.x, cell.y);
+      await sleep(150);
+      s = await shown();
+      t.ok('now source', !s.table && s.src === 4, JSON.stringify(s));
+      const caret = await page.evaluate(() => {
+        const v = window.__irori.view;
+        const head = v.state.selection.main.head;
+        const line = v.state.doc.lineAt(head);
+        return { line: line.number, col: head - line.from };
+      });
+      t.eq('caret on that row', caret.line, 6);
+      t.ok('at the clicked cell', caret.col >= 20 && caret.col <= 22, JSON.stringify(caret));
+      const pipes = await page.evaluate(() => [...document.querySelectorAll('.cm-line.tsrc .tok')].some((e) => e.textContent === '|'));
+      t.ok('pipes are markup-coloured in source', pipes, '');
+
+      // leaving turns it back
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(8).from } });
+      });
+      await sleep(100);
+      t.ok('caret gone: a table again', (await shown()).table, '');
+
+      // arrow down from the line above steps into the table's first row
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(2).from } });
+        v.focus();
+      });
+      await page.keyboard.press('ArrowDown');
+      await sleep(100);
+      t.eq('ArrowDown lands on the header row', await page.evaluate(() => {
+        const v = window.__irori.view;
+        return v.state.doc.lineAt(v.state.selection.main.head).number;
+      }), 3);
+      t.ok('and it shows source', !(await shown()).table, '');
+      // arrow up from below lands on the last row
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(7).from } });
+      });
+      await sleep(100);
+      await page.keyboard.press('ArrowUp');
+      await sleep(100);
+      t.eq('ArrowUp lands on the last row', await page.evaluate(() => {
+        const v = window.__irori.view;
+        return v.state.doc.lineAt(v.state.selection.main.head).number;
+      }), 6);
+
+      // the minimap shows it as a table too
+      t.ok('minimap renders the table', await page.evaluate(() => !!document.querySelector('#miniContent .mdtbl')), '');
+    },
+  },
+  {
+    id: 'B-89',
+    name: 'A link away from the caret shows only its text; the caret at it shows the whole source',
+    async run(t, ctx) {
+      const md = '看 [文档](https://x.y) 再说。\n\n第二行';
+      const page = await ctx.open({ files: { '/n/l.md': md }, startup: '/n/l.md' });
+      const first = () => page.evaluate(() => document.querySelector('.cm-content .cm-line').textContent);
+      const put = (pos) =>
+        page.evaluate((p) => {
+          const v = window.__irori.view;
+          v.dispatch({ selection: { anchor: p } });
+        }, pos);
+      await put(md.length);
+      await sleep(80);
+      t.eq('away: only the text', await first(), '看 文档 再说。');
+      t.ok('still styled as a link', await page.evaluate(() => document.querySelector('.cm-content .lnk')?.textContent === '文档'), '');
+      await put(1); // just before the link, not touching it
+      await sleep(80);
+      t.eq('same line, not touching: still only the text', await first(), '看 文档 再说。');
+      await put(2); // touching its start
+      await sleep(80);
+      t.eq('caret at it: source', await first(), md.split('\n')[0]);
+      await put(md.indexOf(')') + 1); // right after the closing paren
+      await sleep(80);
+      t.eq('caret right after it: source', await first(), md.split('\n')[0]);
+      t.eq('the document is untouched', await docText(page), md);
+      // the PDF shows links as their text
+      const printed = await page.evaluate(async () => {
+        await window.__irori.preparePrint();
+        const row = document.querySelector('#print [data-line="1"]');
+        // #print only shows in print media, so read what its styles hide rather than its innerText
+        const hidden = [...row.querySelectorAll('.lnk > *')].filter((e) => getComputedStyle(e).display === 'none');
+        const out = hidden.map((e) => e.textContent).join('');
+        window.__irori.clearPrint();
+        return out;
+      });
+      t.eq('PDF: the link markup is hidden', printed, '[](https://x.y)');
     },
   },
 ];

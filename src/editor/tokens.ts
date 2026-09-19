@@ -237,6 +237,134 @@ export function withListRow(text: string, deco: LineDeco, row: ListRow | null | 
   };
 }
 
+/* ---------- links ----------
+   Away from the caret a link shows only its text: the `[` in front and the `](url)` behind
+   are hidden (the editor replaces them; the minimap and the PDF hide them with CSS). */
+
+/** The hidden parts of every link in a line's marks: `head` is the `[`, `tail` the `](url)`.
+    An image's source (`![…](…)`, decorated like a link) is not a link and keeps its markup. */
+export function linkParts(text: string, marks: Mark[]): { from: number; to: number; head: Mark; tail: Mark }[] {
+  const out: { from: number; to: number; head: Mark; tail: Mark }[] = [];
+  for (const l of marks) {
+    if (l.cls !== 'lnk' || text[l.from - 1] === '!') continue;
+    const toks = marks.filter((m) => m.cls === 'tok' && m.from >= l.from && m.to <= l.to);
+    // `[`, `](`, `)` in that order — see the link rule above
+    if (toks.length < 3) continue;
+    out.push({ from: l.from, to: l.to, head: toks[0], tail: { from: toks[1].from, to: l.to, cls: 'tok' } });
+  }
+  return out;
+}
+
+/* ---------- tables ----------
+   A GFM table: a header row, a delimiter row with the same number of cells (`---`, `:--`,
+   `--:`, `:-:`), then body rows up to a blank line or a line without a `|`. Away from the
+   caret the editor shows it as a table; with the caret in it, every line is source. */
+
+export type Align = 'left' | 'center' | 'right' | null;
+/** a cell's text and where it starts in its line */
+export type Cell = { text: string; at: number };
+export type Table = { head: Cell[]; align: Align[]; rows: Cell[][] };
+
+/** Split a row at its unescaped pipes (a pipe inside `code` does not count). Null without a pipe. */
+export function tableCells(text: string): Cell[] | null {
+  if (text.indexOf('|') < 0) return null;
+  const bounds: number[] = [];
+  let code = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '\\') i++;
+    else if (ch === '`') code = !code;
+    else if (ch === '|' && !code) bounds.push(i);
+  }
+  if (!bounds.length) return null;
+  const lead = /^\s*/.exec(text)![0].length;
+  const trail = text.length - /\s*$/.exec(text)![0].length;
+  // a leading and a trailing pipe are borders, not cell separators
+  const cuts = [bounds[0] === lead ? lead : -1, ...bounds.filter((b) => b !== lead && b !== trail - 1)];
+  const end = bounds[bounds.length - 1] === trail - 1 && trail - 1 !== lead ? trail - 1 : text.length;
+  const cells: Cell[] = [];
+  for (let k = 0; k < cuts.length; k++) {
+    const from = cuts[k] + 1;
+    const to = k + 1 < cuts.length ? cuts[k + 1] : end;
+    const raw = text.slice(from, to);
+    const pad = /^\s*/.exec(raw)![0].length;
+    cells.push({ text: raw.trim(), at: from + pad });
+  }
+  return cells;
+}
+
+function delimiter(text: string): Align[] | null {
+  const cells = tableCells(text);
+  if (!cells || !cells.every((c) => /^:?-+:?$/.test(c.text))) return null;
+  return cells.map(({ text: t }) =>
+    t.startsWith(':') && t.endsWith(':') ? 'center' : t.endsWith(':') ? 'right' : t.startsWith(':') ? 'left' : null,
+  );
+}
+
+/** Lines (1-based, inclusive) of every table in the document. */
+export function tableRanges(line: (n: number) => string, lines: number): { from: number; to: number }[] {
+  const out: { from: number; to: number }[] = [];
+  for (let n = 1; n < lines; n++) {
+    const head = line(n);
+    if (head.indexOf('|') < 0 || /^ {4}/.test(head)) continue;
+    const align = delimiter(line(n + 1));
+    if (!align || tableCells(head)!.length !== align.length) continue;
+    let z = n + 1;
+    while (z < lines && line(z + 1).trim() !== '' && tableCells(line(z + 1))) z++;
+    out.push({ from: n, to: z });
+    n = z;
+  }
+  return out;
+}
+
+/** The table made of these lines (a range from tableRanges); rows are cut or padded to the header's width. */
+export function parseTable(lines: string[]): Table {
+  const head = tableCells(lines[0])!;
+  const width = head.length;
+  const fit = (cells: Cell[]) =>
+    Array.from({ length: width }, (_, k) => cells[k] ?? { text: '', at: -1 });
+  return {
+    head,
+    align: delimiter(lines[1])!,
+    rows: lines.slice(2).map((l) => fit(tableCells(l) ?? [{ text: l.trim(), at: /^\s*/.exec(l)![0].length }])),
+  };
+}
+
+/** A table line shown as source: its pipes (and the whole delimiter row) are markup. */
+export function tableSourceDeco(text: string, delimiterRow: boolean): LineDeco {
+  if (delimiterRow) return { lineClass: 'tsrc', marks: [{ from: 0, to: text.length, cls: 'tok' }] };
+  const marks: Mark[] = [];
+  let code = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '\\') i++;
+    else if (ch === '`') code = !code;
+    else if (ch === '|' && !code) marks.push({ from: i, to: i + 1, cls: 'tok' });
+  }
+  const inline = inlineMarks(text).filter((m) => !marks.some((p) => p.from >= m.from && p.from < m.to));
+  return { lineClass: 'tsrc', marks: [...marks, ...inline].sort((a, b) => a.from - b.from || b.to - a.to) };
+}
+
+/** A table as HTML, cells decorated like any text (with the markup hidden by CSS). Each cell
+    carries `data-off`: where its text starts, counted from the table's first character. */
+export function tableHTML(lines: string[]): string {
+  const t = parseTable(lines);
+  const starts: number[] = [];
+  let off = 0;
+  for (const l of lines) {
+    starts.push(off);
+    off += l.length + 1;
+  }
+  const cell = (tag: string, c: Cell, k: number, lineIdx: number) => {
+    const align = t.align[k] ? ` style="text-align:${t.align[k]}"` : '';
+    const at = c.at >= 0 ? starts[lineIdx] + c.at : starts[lineIdx] + lines[lineIdx].length;
+    return `<${tag} data-off="${at}"${align}>${c.text ? lineHTML(c.text) : ''}</${tag}>`;
+  };
+  const headRow = `<tr>${t.head.map((c, k) => cell('th', c, k, 0)).join('')}</tr>`;
+  const body = t.rows.map((r, i) => `<tr>${r.map((c, k) => cell('td', c, k, i + 2)).join('')}</tr>`).join('');
+  return `<table class="mdtbl"><thead>${headRow}</thead>${body ? `<tbody>${body}</tbody>` : ''}</table>`;
+}
+
 /* ---------- blockquote rail grouping ----------
    Consecutive quote rows share ONE continuous left rail, exactly like a single quote
    paragraph that wraps. Membership follows marked's blockquote grouping: a ">" line

@@ -1,5 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { decorateLine, imageLine, inlineMarks, lineHTML, listItem, listRows, listScan, quoteScan, withListRow } from '../../src/editor/tokens';
+import {
+  decorateLine,
+  imageLine,
+  inlineMarks,
+  lineHTML,
+  linkParts,
+  listItem,
+  listRows,
+  listScan,
+  parseTable,
+  quoteScan,
+  tableCells,
+  tableHTML,
+  tableRanges,
+  tableSourceDeco,
+  withListRow,
+} from '../../src/editor/tokens';
 
 const classesAt = (text: string, i: number) =>
   inlineMarks(text)
@@ -177,5 +193,66 @@ describe('image lines', () => {
   });
   it('ignores an image with text around it', () => {
     expect(imageLine('看 ![](x.png)')).toBeNull();
+  });
+});
+
+describe('links', () => {
+  it('finds the hidden parts: the [ in front and the ](url) behind', () => {
+    const text = '看 [文档](https://x.y) 吧';
+    const [l] = linkParts(text, inlineMarks(text));
+    expect(text.slice(l.from, l.to)).toBe('[文档](https://x.y)');
+    expect(text.slice(l.head.from, l.head.to)).toBe('[');
+    expect(text.slice(l.tail.from, l.tail.to)).toBe('](https://x.y)');
+  });
+  it('leaves an image source and code alone', () => {
+    expect(linkParts('![a](b.png)', inlineMarks('![a](b.png)'))).toEqual([]);
+    expect(linkParts('`[a](b)`', inlineMarks('`[a](b)`'))).toEqual([]);
+  });
+});
+
+describe('tables', () => {
+  const doc = ['前文', '| 名称 | 数量 |', '| :-- | --: |', '| 苹果 | 3 |', '| 梨 | 12 |', '', '后文'];
+  const at = (n: number) => doc[n - 1];
+
+  it('splits cells at unescaped pipes outside code', () => {
+    expect(tableCells('| a | `x|y` | b\\|c |')!.map((c) => c.text)).toEqual(['a', '`x|y`', 'b\\|c']);
+    expect(tableCells('a | b')!.map((c) => c.text)).toEqual(['a', 'b']);
+    expect(tableCells('没有竖线')).toBeNull();
+  });
+  it('records where each cell text starts', () => {
+    const cells = tableCells('|  名称 | x |')!;
+    expect(cells[0].at).toBe(3);
+    expect(cells[1].at).toBe(8);
+  });
+  it('finds a table: header, delimiter, body up to a blank line', () => {
+    expect(tableRanges(at, doc.length)).toEqual([{ from: 2, to: 5 }]);
+  });
+  it('needs a delimiter row with as many cells as the header', () => {
+    expect(tableRanges((n) => ['a | b', '---'][n - 1], 2)).toEqual([]);
+    expect(tableRanges((n) => ['a | b', 'c | d'][n - 1], 2)).toEqual([]);
+    expect(tableRanges((n) => ['| a |', '| --- |'][n - 1], 2)).toEqual([{ from: 1, to: 2 }]);
+  });
+  it('stops at a line without a pipe', () => {
+    const d = ['a | b', '--|--', '1 | 2', '正文'];
+    expect(tableRanges((n) => d[n - 1], d.length)).toEqual([{ from: 1, to: 3 }]);
+  });
+  it('reads the alignment and pads short rows', () => {
+    const t = parseTable(['a | b | c', ':-: | --: | :--', '1']);
+    expect(t.align).toEqual(['center', 'right', 'left']);
+    expect(t.rows[0].map((c) => c.text)).toEqual(['1', '', '']);
+  });
+  it('renders cells with data-off pointing at their text in the source', () => {
+    const lines = doc.slice(1, 5);
+    const src = lines.join('\n');
+    const html = tableHTML(lines);
+    const offs = [...html.matchAll(/data-off="(\d+)"/g)].map((m) => +m[1]);
+    expect(offs.map((o) => src.slice(o, o + 2))).toEqual(['名称', '数量', '苹果', '3 ', '梨 ', '12']);
+    expect(html).toContain('style="text-align:right"');
+  });
+  it('marks the pipes and the delimiter row as markup in source', () => {
+    const d = tableSourceDeco('| **a** | b |', false);
+    expect(d.marks.filter((m) => m.cls === 'tok' && m.to - m.from === 1).length).toBeGreaterThanOrEqual(3);
+    expect(d.marks.some((m) => m.cls === 'b')).toBe(true);
+    expect(tableSourceDeco('| --- |', true).marks).toEqual([{ from: 0, to: 7, cls: 'tok' }]);
   });
 });

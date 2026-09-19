@@ -17,7 +17,7 @@
 
 import type { Platform } from '../platform/types';
 import { basename } from '../platform/paths';
-import { decorateLine, imageLine, lineHTML, listScan, quoteScan, withListRow } from '../editor/tokens';
+import { decorateLine, imageLine, lineHTML, listScan, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
 
 /** A4 height at 96 CSS px per inch (the width, 210mm, lives in style.css). */
 export const PAGE_H = 1122.5;
@@ -53,7 +53,8 @@ function ornament(): string {
   return `<img src="${canvas.toDataURL()}" alt="">`;
 }
 
-type Row = { html: string; cls: string; style: string; heading: boolean; blank: boolean; text: boolean };
+/** `line`: the document line the row starts at (0 for the ornament) */
+type Row = { html: string; cls: string; style: string; heading: boolean; blank: boolean; text: boolean; line: number };
 
 const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
@@ -63,8 +64,20 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
   const rails = quoteScan(lines);
   const lists = listScan(lines);
   // the head ornament opens the text, as on screen (its picture is drawn by preparePrint)
-  const rows: Row[] = [{ html: '', cls: 'porn', style: '', heading: false, blank: false, text: false }];
+  const rows: Row[] = [{ html: '', cls: 'porn', style: '', heading: false, blank: false, text: false, line: 0 }];
+  // a table is one row, rendered; a page may still end between two of its rows (lineGaps)
+  const tables = tableRanges((n) => lines[n - 1], lines.length);
+  let t = 0;
   lines.forEach((line, i) => {
+    const table = tables[t];
+    if (table && i + 1 >= table.from) {
+      if (i + 1 === table.from) {
+        const html = tableHTML(lines.slice(table.from - 1, table.to));
+        rows.push({ html, cls: 'ln tblrow', style: '', heading: false, blank: false, text: true, line: i + 1 });
+      }
+      if (i + 1 === table.to) t++;
+      return;
+    }
     const { deco, style } = withListRow(line, decorateLine(line), lists[i]);
     const cls = ['ln'];
     if (deco.lineClass) cls.push(deco.lineClass);
@@ -87,14 +100,15 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
       heading: /\bh[1-6]\b/.test(deco.lineClass),
       blank: line.trim() === '',
       text: !img,
+      line: i + 1,
     });
   });
   return rows;
 }
 
-/** `data-line`: the row's line number in the document (the ornament, row 0, has none) */
-const rowHTML = (r: Row, i: number) =>
-  `<div class="${r.cls}"${i ? ` data-line="${i}"` : ''}${r.style ? ` style="${r.style}"` : ''}>${r.html}</div>`;
+/** `data-line`: the row's line number in the document (the ornament has none) */
+const rowHTML = (r: Row) =>
+  `<div class="${r.cls}"${r.line ? ` data-line="${r.line}"` : ''}${r.style ? ` style="${r.style}"` : ''}>${r.html}</div>`;
 
 /** Wait for every picture to settle (loaded or failed), so the rows can be measured. */
 async function settleImages(root: HTMLElement, timeout = 8000) {

@@ -143,6 +143,17 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .imgwrap:hover .imgsrc{opacity:1;}
 .imgmiss{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#b3452e;background:rgba(179,69,46,.08);border:1px dashed rgba(179,69,46,.4);border-radius:6px;padding:4px 10px;line-height:1.4;}
 
+/* ---- tables: rendered away from the caret (editor/decorations.ts), source with it ----
+   The rendered table is a reading view: its cells hide the markdown markup, links show only
+   their text. The minimap and the PDF hide link markup everywhere (the editor replaces it). */
+.tblrow{cursor:text;padding:6px 0;}
+.mdtbl{border-collapse:collapse;max-width:100%;line-height:1.7;font-size:.94em;}
+.mdtbl th,.mdtbl td{border:1px solid var(--line);padding:4px 12px;text-align:left;vertical-align:top;}
+.mdtbl th{font-weight:700;background:rgba(162,123,92,.07);}
+.mdtbl tbody tr:nth-child(even) td{background:rgba(162,123,92,.03);}
+.mdtbl .tok,.mdtbl .url,.mini .lnk>.tok,.mini .lnk>.url,.pmeasure .lnk>.tok,.pmeasure .lnk>.url,#print .lnk>.tok,#print .lnk>.url{display:none;}
+.tblrow .mdtbl{display:block;overflow-x:auto;}
+
 /* ---- left TOC (Nlvi-theme style, from the blog editor) ---- */
 .post-toc{position:fixed;left:0;top:50%;transform:translate(0,-50%);width:210px;padding:0 26px;z-index:6;font-family:var(--font-body);transition:transform .34s cubic-bezier(.2,.7,.2,1),opacity .3s ease;}
 .post-toc .title{position:relative;text-align:center;font-weight:700;font-size:14px;opacity:.9;padding:6px 0;margin-bottom:10px;color:var(--ink);letter-spacing:2px;}

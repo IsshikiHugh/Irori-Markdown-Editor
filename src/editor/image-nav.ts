@@ -1,18 +1,20 @@
-/* Arrow keys must step ONTO an image line, not over it.
+/* Arrow keys must step ONTO an image line or into a table, not over it.
 
-   A picture is a block widget that replaces its line, and CodeMirror's default vertical
-   motion treats such a block as one opaque thing to jump past. The blog editor made a
-   point of the opposite behaviour — "arrow keys walk into image lines" — because stepping
-   in is how you edit the `![](…)` source. So these four commands run before the default
-   keymap and place the caret inside the neighbouring image line when there is one. */
+   A picture is a block widget that replaces its line (a table, its lines), and CodeMirror's
+   default vertical motion treats such a block as one opaque thing to jump past. The blog
+   editor made a point of the opposite behaviour — "arrow keys walk into image lines" —
+   because stepping in is how you edit the source. So these four commands run before the
+   default keymap and place the caret inside the neighbouring block when there is one:
+   the first line of a table from above, its last line from below. */
 
 import type { KeyBinding } from '@codemirror/view';
 import { EditorView } from '@codemirror/view';
 import type { EditorState } from '@codemirror/state';
 import { imageLine } from './tokens';
+import { inTable } from './decorations';
 
-const isImage = (state: EditorState, lineNo: number) =>
-  lineNo >= 1 && lineNo <= state.doc.lines && !!imageLine(state.doc.line(lineNo).text);
+const isBlock = (state: EditorState, lineNo: number) =>
+  lineNo >= 1 && lineNo <= state.doc.lines && (!!imageLine(state.doc.line(lineNo).text) || !!inTable(state, lineNo));
 
 /** Is the caret on the last (or first) visual row of its wrapped line?
     Measured by comparing visual rows, not box edges: with line-height 2.05 the caret is
@@ -32,7 +34,10 @@ function step(view: EditorView, dir: 1 | -1, requireEdge: boolean): boolean {
   if (!range.empty) return false;
   const line = state.doc.lineAt(range.head);
   const targetNo = line.number + dir;
-  if (!isImage(state, targetNo)) return false;
+  if (!isBlock(state, targetNo)) return false;
+  // already inside that table: moving within it is ordinary motion
+  const here = inTable(state, line.number);
+  if (here && here === inTable(state, targetNo)) return false;
   if (requireEdge && !atEdge(view, dir === 1)) return false;
   if (!requireEdge) {
     // horizontal motion: only at the very edge of the current line

@@ -7,7 +7,7 @@
    same cost as a short one while staying pixel-aligned with the real text. */
 
 import type { EditorView } from '@codemirror/view';
-import { decorateLine, imageLine, lineHTML, listRows, quoteScan, withListRow } from '../editor/tokens';
+import { decorateLine, imageLine, lineHTML, listRows, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
 import type { Glide } from './glide';
 
 const PAD = 10;
@@ -102,10 +102,22 @@ export function createMinimap(
     for (let n = scanFrom; n <= toLine; n++) texts.push(doc.line(n).text);
     const rails = quoteScan(texts);
     const lists = listRows((n) => doc.line(n).text, doc.lines, fromLine, toLine);
+    // tables always show rendered here, like pictures; one that starts above the band is drawn
+    // from its first line, so it is cut off at the top just as the editor's is
+    const tables = tableRanges((n) => doc.line(n).text, doc.lines).filter((t) => t.to >= fromLine && t.from <= toLine);
 
     const parts: string[] = [];
     let rows = 0;
     for (let n = fromLine; n <= toLine && rows < MAX_ROWS; n++, rows++) {
+      const table = tables.find((t) => n >= t.from && n <= t.to);
+      if (table) {
+        const lines: string[] = [];
+        for (let k = table.from; k <= table.to; k++) lines.push(doc.line(k).text);
+        const y = view.lineBlockAt(doc.line(table.from).from).top + padTop();
+        parts.push(`<div class="ln tblrow" style="top:${y.toFixed(2)}px">${tableHTML(lines)}</div>`);
+        n = table.to;
+        continue;
+      }
       const line = doc.line(n);
       const text = line.text;
       const rail = rails[n - scanFrom];

@@ -6,19 +6,33 @@
       (h1…h6 / quote rail / morecomment) and its inline marks — which is what makes a
       100k-word document cost the same as a short one;
    2. an image line the caret is NOT on is replaced by a block widget showing the
-      picture. The caret's line always shows source — that invariant is the whole
-      contract of this editor.
+      picture, and so is a table the caret is not in (all its lines, by a rendered
+      table). Where the caret is, the text always shows source — that invariant is the
+      whole contract of this editor. Links follow the same rule inline: away from the
+      caret only their text shows.
 
    The two live in different places on purpose: decorations that change the block
-   layout (a whole line replaced by a picture) may only come from a state field, never
-   from a view plugin — CodeMirror rejects them otherwise. The field is rebuilt only
-   when the document changes or the caret moves to another line. */
+   layout (lines replaced by a picture or a table) may only come from a state field,
+   never from a view plugin — CodeMirror rejects them otherwise. The field is rebuilt
+   only when the document changes or the caret moves to another line. */
 
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import type { DecorationSet, ViewUpdate } from '@codemirror/view';
 import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
-import type { EditorState, Extension } from '@codemirror/state';
-import { decorateLine, imageLine, isQuoteReset, listRows, quoteStep, QUOTE_START, withListRow } from './tokens';
+import type { EditorState, Extension, Range } from '@codemirror/state';
+import {
+  decorateLine,
+  imageLine,
+  isQuoteReset,
+  linkParts,
+  listRows,
+  quoteStep,
+  QUOTE_START,
+  tableHTML,
+  tableRanges,
+  tableSourceDeco,
+  withListRow,
+} from './tokens';
 import type { QuoteState } from './tokens';
 
 /** How an image's relative `src` becomes something the webview can load. */
@@ -122,6 +136,35 @@ class ImageWidget extends WidgetType {
   }
 }
 
+/* ---------- table widget ---------- */
+
+class TableWidget extends WidgetType {
+  constructor(readonly lines: string[]) {
+    super();
+  }
+  override eq(other: TableWidget) {
+    return other.lines.join('\n') === this.lines.join('\n');
+  }
+  override toDOM(view: EditorView) {
+    const row = document.createElement('div');
+    row.className = 'ln tblrow';
+    row.innerHTML = tableHTML(this.lines);
+    // a click goes into the source at the cell that was clicked, not just to the table's start
+    row.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const cell = (e.target as HTMLElement).closest<HTMLElement>('[data-off]');
+      const pos = view.posAtDOM(row) + Number(cell?.dataset.off ?? 0);
+      view.dispatch({ selection: { anchor: pos }, userEvent: 'select' });
+      view.focus();
+    });
+    return row;
+  }
+  override ignoreEvent(e: Event) {
+    return e.type === 'mousedown'; // handled above
+  }
+}
+
 /** Lines the caret (or a selection) touches: those always show source. */
 function caretLines(state: EditorState): Set<number> {
   const out = new Set<number>();
@@ -133,16 +176,36 @@ function caretLines(state: EditorState): Set<number> {
   return out;
 }
 
-function buildImages(state: EditorState): DecorationSet {
+type Blocks = { deco: DecorationSet; tables: { from: number; to: number }[] };
+
+function buildBlocks(state: EditorState): Blocks {
   const b = new RangeSetBuilder<Decoration>();
   const live = caretLines(state);
   const doc = state.doc;
+  const tables = tableRanges((n) => doc.line(n).text, doc.lines);
+  let t = 0;
   let n = 0;
   let st = QUOTE_START;
   for (const line of doc.iterLines()) {
     n++;
     const hit = quoteStep(st, line);
     st = hit.state;
+    const table = tables[t];
+    if (table && n === table.from) {
+      let caretIn = false;
+      for (let k = table.from; k <= table.to; k++) caretIn ||= live.has(k);
+      if (!caretIn) {
+        const lines: string[] = [];
+        for (let k = table.from; k <= table.to; k++) lines.push(doc.line(k).text);
+        b.add(
+          doc.line(table.from).from,
+          doc.line(table.to).to,
+          Decoration.replace({ widget: new TableWidget(lines), block: true }),
+        );
+      }
+    }
+    if (table && n === table.to) t++;
+    if (table && n >= table.from && n <= table.to) continue;
     if (line.length < 5 || line.indexOf('![') < 0) continue; // cheap reject for the common case
     const img = imageLine(line);
     if (!img || live.has(n)) continue;
@@ -153,25 +216,31 @@ function buildImages(state: EditorState): DecorationSet {
       Decoration.replace({ widget: new ImageWidget(line, img.quote, img.alt, img.src, hit.member), block: true }),
     );
   }
-  return b.finish();
+  return { deco: b.finish(), tables };
 }
 
-const imageField = StateField.define<DecorationSet>({
-  create: buildImages,
-  update(set, tr) {
-    if (!tr.docChanged && !tr.selection) return set;
+const blockField = StateField.define<Blocks>({
+  create: buildBlocks,
+  update(blocks, tr) {
+    if (!tr.docChanged && !tr.selection) return blocks;
     if (tr.selection && !tr.docChanged) {
       // only matters when the caret moved to a different line
       const before = tr.startState.doc.lineAt(tr.startState.selection.main.head).number;
       const after = tr.state.doc.lineAt(tr.state.selection.main.head).number;
       const beforeAnchor = tr.startState.doc.lineAt(tr.startState.selection.main.anchor).number;
       const afterAnchor = tr.state.doc.lineAt(tr.state.selection.main.anchor).number;
-      if (before === after && beforeAnchor === afterAnchor) return set;
+      if (before === after && beforeAnchor === afterAnchor) return blocks;
     }
-    return buildImages(tr.state);
+    return buildBlocks(tr.state);
   },
-  provide: (f) => EditorView.decorations.from(f),
+  provide: (f) => EditorView.decorations.from(f, (blocks) => blocks.deco),
 });
+
+/** Is line `n` part of a table? (Lines 1-based; also used by the arrow-key navigation.) */
+export function inTable(state: EditorState, n: number): { from: number; to: number } | null {
+  for (const t of state.field(blockField).tables) if (n >= t.from && n <= t.to) return t;
+  return null;
+}
 
 /* ---------- per-line decoration (viewport only) ---------- */
 
@@ -186,7 +255,7 @@ function quoteStateAt(state: EditorState, lineNo: number): QuoteState {
 }
 
 function build(view: EditorView): DecorationSet {
-  const b = new RangeSetBuilder<Decoration>();
+  const out: Range<Decoration>[] = [];
   const state = view.state;
   const doc = state.doc;
   const live = caretLines(state);
@@ -194,6 +263,8 @@ function build(view: EditorView): DecorationSet {
   // the current-line highlight follows the caret itself (the head of the main range),
   // exactly like the blog editor's updateActiveLine()
   const anchorLine = doc.lineAt(state.selection.main.head).number;
+  const { tables } = state.field(blockField);
+  const touches = (from: number, to: number) => state.selection.ranges.some((r) => r.from <= to && r.to >= from);
 
   // An empty document's visibleRanges is an empty array (the viewport is 0..0), so the first line
   // would get no decoration at all: the font falls back to 16px/1.4, the caret is short and sits
@@ -213,9 +284,13 @@ function build(view: EditorView): DecorationSet {
       const hit = quoteStep(st, text);
       st = hit.state;
 
-      const img = imageLine(text);
+      const table = tables.find((t) => lineNo >= t.from && lineNo <= t.to);
+      if (table && ![...live].some((k) => k >= table.from && k <= table.to)) continue; // rendered by blockField
+      const img = table ? null : imageLine(text);
       const asImage = !!img && !live.has(lineNo);
-      const { deco, style } = withListRow(text, decorateLine(text), lists[lineNo - firstNo]);
+      const { deco, style } = table
+        ? { deco: tableSourceDeco(text, lineNo === table.from + 1), style: '' }
+        : withListRow(text, decorateLine(text), lists[lineNo - firstNo]);
       const cls = ['ln'];
       if (deco.lineClass) cls.push(deco.lineClass);
       if (hit.member) cls.push('quote');
@@ -223,21 +298,29 @@ function build(view: EditorView): DecorationSet {
       if (asImage) cls.push('imgrow');
       if (lineNo === anchorLine) cls.push('aline');
       if (hovered === line.from) cls.push('mhover');
-      b.add(line.from, line.from, Decoration.line({ class: cls.join(' '), attributes: style ? { style } : undefined }));
+      out.push(Decoration.line({ class: cls.join(' '), attributes: style ? { style } : undefined }).range(line.from));
 
-      if (asImage) continue; // the picture (a block decoration) comes from imageField
+      if (asImage) continue; // the picture (a block decoration) comes from blockField
       for (const m of deco.marks) {
         if (m.to <= m.from) continue;
-        b.add(line.from + m.from, line.from + m.to, Decoration.mark({ class: m.cls }));
+        out.push(Decoration.mark({ class: m.cls }).range(line.from + m.from, line.from + m.to));
+      }
+      // a link the caret is not on shows only its text
+      for (const l of linkParts(text, deco.marks)) {
+        if (touches(line.from + l.from, line.from + l.to)) continue;
+        out.push(hideMarkup.range(line.from + l.head.from, line.from + l.head.to));
+        out.push(hideMarkup.range(line.from + l.tail.from, line.from + l.tail.to));
       }
     }
   }
-  return b.finish();
+  return Decoration.set(out, true);
 }
+
+const hideMarkup = Decoration.replace({});
 
 export const sourceDecoration: Extension = [
   hoverHighlight,
-  imageField,
+  blockField,
   ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
