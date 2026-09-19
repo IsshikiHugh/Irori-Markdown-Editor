@@ -1,18 +1,24 @@
 name: Release
 
-# Releasing: push a `v*` tag; all four platforms are built, attached to a GitHub Release, and the
-# release is published.
+# Releasing is automatic: a version bump that reaches main is released once CI has passed on it.
 #
 #   1. Bump the version (package.json, src-tauri/tauri.conf.json and src-tauri/Cargo.toml must
-#      agree) and add a `## vX.Y.Z — date` section to CHANGELOG.md; commit and push to main
-#   2. git tag vX.Y.Z && git push origin vX.Y.Z
+#      agree) and add a `## vX.Y.Z — date` section to CHANGELOG.md
+#   2. Commit and push to main. When CI goes green on that commit, this workflow sees that
+#      vX.Y.Z has no published release yet, builds all four platforms and publishes it (the tag
+#      is created by the release, on that commit). Pushes that don't change the version find
+#      the release already out and stop at `prepare`.
 #
-# Flow: `prepare` checks the tag against the version, takes this version's notes from CHANGELOG.md
-# and creates a draft release → the four platforms build in parallel and upload their installers
-# plus signed updater bundles → `publish` assembles latest.json (what installed copies check for
-# updates, via releases/latest) and publishes the draft — only if every build succeeded. If any platform fails the release stays a
-# draft instead of going out with a platform missing; fix it and re-run the failed jobs.
-# Tags containing `-` (e.g. v0.2.0-beta.1) are published as pre-releases.
+# Pushing a `v*` tag by hand still works and releases that tag (it has to match the version).
+#
+# Flow: `prepare` works out the version, takes its notes from CHANGELOG.md (a missing section is
+# an error) and creates a draft release → the four platforms build in parallel and upload their
+# installers plus signed updater bundles → `publish` assembles latest.json (what installed copies
+# check for updates, via releases/latest) and publishes the draft — only if every build
+# succeeded. If any platform fails the release stays a draft instead of going out with a
+# platform missing; fix it and re-run the failed jobs.
+# Versions containing `-` (e.g. 0.2.0-beta.1) are published as pre-releases, which installed
+# copies are never offered.
 #
 # A manual run (Actions → Release → Run workflow) never touches releases and only builds: the
 # installers are in the Artifacts section at the bottom of that run's page (Windows ships
@@ -23,6 +29,10 @@ name: Release
 # the acceptance checklist on them.
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   push:
     tags: ['v*']
   workflow_dispatch:
@@ -32,69 +42,113 @@ on:
 permissions:
   contents: write
 
+# One release at a time: a hand-pushed tag and the CI-triggered run for the same commit must not
+# race to create the same release
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   prepare:
     name: Prepare release
-    if: github.ref_type == 'tag'
+    # after CI: only a green run of a push to main (not a pull request, not a failure)
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     outputs:
+      sha: ${{ steps.what.outputs.sha }}
+      tag: ${{ steps.what.outputs.tag }}
+      build: ${{ steps.what.outputs.build }}
+      release: ${{ steps.what.outputs.release }}
       release_id: ${{ steps.release.outputs.id }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-      # A mismatch would put a different version in the installer file names than in the tag —
-      # stop here rather than building four platforms for nothing
-      - name: Check the tag matches the version
+      # build: whether to build at all; release: whether to publish what was built
+      - name: What to do
+        id: what
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          want="${GITHUB_REF_NAME#v}"
           npm_ver=$(node -p "require('./package.json').version")
           conf_ver=$(node -p "require('./src-tauri/tauri.conf.json').version")
           cargo_ver=$(grep -m1 '^version = ' src-tauri/Cargo.toml | cut -d'"' -f2)
-          echo "tag=$want package.json=$npm_ver tauri.conf.json=$conf_ver Cargo.toml=$cargo_ver"
-          if [[ "$npm_ver" != "$want" || "$conf_ver" != "$want" || "$cargo_ver" != "$want" ]]; then
-            echo "::error::tag $GITHUB_REF_NAME does not match the version; set all three versions to $want before tagging"
+          echo "package.json=$npm_ver tauri.conf.json=$conf_ver Cargo.toml=$cargo_ver"
+          # A mismatch would put different versions in the installer names and the release —
+          # stop here rather than building four platforms for nothing
+          if [[ "$npm_ver" != "$conf_ver" || "$npm_ver" != "$cargo_ver" ]]; then
+            echo "::error::the three versions disagree; set package.json, tauri.conf.json and Cargo.toml to the same version"
             exit 1
           fi
+          tag="v$npm_ver"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"; echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF_NAME" != "$tag" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match the version $npm_ver"
+            exit 1
+          fi
+          # only published releases are visible here; a draft left by a failed run is picked up
+          # again below
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --silent 2>/dev/null; then
+            echo "::notice::$tag is already released; nothing to do"
+            echo "build=false" >> "$GITHUB_OUTPUT"; echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "build=true" >> "$GITHUB_OUTPUT"; echo "release=true" >> "$GITHUB_OUTPUT"
 
       - name: Take this version's notes from CHANGELOG
+        if: steps.what.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.what.outputs.tag }}
         run: |
           # The section starting at `## vX.Y.Z`, up to the next `## v`
-          awk -v head="## $GITHUB_REF_NAME" '
+          awk -v head="## $TAG" '
             index($0, head) == 1 && (length($0) == length(head) || substr($0, length(head) + 1, 1) == " ") { on = 1; next }
             on && /^## v/ { exit }
             on { print }
           ' CHANGELOG.md > notes.md
           if [[ -z "$(tr -d '[:space:]' < notes.md)" ]]; then
-            echo "::warning::CHANGELOG.md has no section for $GITHUB_REF_NAME; release notes left empty"
-            echo "No changelog entry for this version." > notes.md
+            echo "::error::CHANGELOG.md has no section for $TAG; add one before releasing"
+            exit 1
           fi
           cat notes.md
 
       # A re-run reuses the existing draft instead of creating a second one
       - name: Create draft release
         id: release
+        if: steps.what.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.what.outputs.tag }}
+          SHA: ${{ steps.what.outputs.sha }}
         run: |
-          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id" | head -1)
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1)
           pre=false
-          [[ "$GITHUB_REF_NAME" == *-* ]] && pre=true
+          [[ "$TAG" == *-* ]] && pre=true
           if [[ -z "$id" ]]; then
+            # the tag does not have to exist yet: publishing creates it on this commit
             id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
-              -f tag_name="$GITHUB_REF_NAME" -f name="Irori $GITHUB_REF_NAME" \
+              -f tag_name="$TAG" -f target_commitish="$SHA" -f name="Irori $TAG" \
               -f body="$(cat notes.md)" -F draft=true -F prerelease=$pre --jq .id)
           else
             gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$id" \
-              -f name="Irori $GITHUB_REF_NAME" -f body="$(cat notes.md)" -F prerelease=$pre > /dev/null
+              -f name="Irori $TAG" -f body="$(cat notes.md)" -F prerelease=$pre > /dev/null
           fi
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
   build:
     name: ${{ matrix.label }}
     needs: prepare
-    # On a manual run `prepare` is skipped and the build must still happen; on a tag, a failed
-    # `prepare` stops it
-    if: ${{ !cancelled() && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
+    if: needs.prepare.outputs.build == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -118,6 +172,8 @@ jobs:
             rust-targets: ''
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -159,7 +215,7 @@ jobs:
           # latest.json is written once, in `publish`, rather than merged by four parallel builds
           includeUpdaterJson: false
       - name: Upload installers
-        if: github.ref_type != 'tag'
+        if: needs.prepare.outputs.release != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: irori-${{ matrix.label }}
@@ -170,14 +226,17 @@ jobs:
   publish:
     name: Publish release
     needs: [prepare, build]
-    if: github.ref_type == 'tag'
+    if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
       - name: Assemble latest.json
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.prepare.outputs.release_id }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: node scripts/updater-manifest.mjs
       - name: Draft → published
         env:

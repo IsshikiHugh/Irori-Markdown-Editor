@@ -5,10 +5,10 @@
 // written once and whole, instead of being merged by four builds racing each other. A bundle or
 // signature that is missing fails the job, and the release stays a draft.
 //
-// env: GITHUB_REPOSITORY, GITHUB_REF_NAME (the tag), GH_TOKEN, RELEASE_ID
+// env: GITHUB_REPOSITORY, GH_TOKEN, RELEASE_ID, RELEASE_TAG
 
-const { GITHUB_REPOSITORY: repo, GITHUB_REF_NAME: tag, GH_TOKEN: token, RELEASE_ID: id } = process.env;
-if (!repo || !tag || !token || !id) throw new Error('GITHUB_REPOSITORY, GITHUB_REF_NAME, GH_TOKEN and RELEASE_ID are required');
+const { GITHUB_REPOSITORY: repo, GH_TOKEN: token, RELEASE_ID: id, RELEASE_TAG: tag } = process.env;
+if (!repo || !token || !id || !tag) throw new Error('GITHUB_REPOSITORY, GH_TOKEN, RELEASE_ID and RELEASE_TAG are required');
 
 const auth = { authorization: `Bearer ${token}`, 'x-github-api-version': '2022-11-28' };
 async function api(url, init = {}) {
