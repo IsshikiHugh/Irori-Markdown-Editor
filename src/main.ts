@@ -8,6 +8,7 @@ import { SettingsStore } from './app/settings';
 import { DocumentSession } from './app/document';
 import { storeImage, UnsavedDocumentError } from './app/images';
 import { applyFont, createEditor, setLocked } from './editor';
+import { onLanguageLoaded } from './editor/highlight';
 import { createTOC } from './features/toc';
 import { createMinimap } from './features/minimap';
 import type { Minimap } from './features/minimap';
@@ -206,6 +207,8 @@ async function boot() {
     },
   );
   minimapRef = minimap;
+  // a code block's language arrived after the minimap drew it plain
+  onLanguageLoaded(() => minimap.invalidate());
 
   const focus = createFocus(
     view,

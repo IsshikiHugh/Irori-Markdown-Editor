@@ -37,6 +37,14 @@ cat > "$doc" <<'MD'
 
 9. 九
 10. 十
+
+| 名称 | 数量 |
+| --- | --: |
+| 苹果 | 3 |
+
+```ts
+const n: number = 2;
+```
 MD
 # a 4x3 red PNG next to the document (the export carries it; see the end of the text below)
 echo "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAYAAAC09K7GAAAAFElEQVR42mP8z8BQz0AEYBxVSF+FABJADveWkH6oAAAAAElFTkSuQmCC" | base64 -d > "$tmp/pic.png"
@@ -133,6 +141,8 @@ const need = [["host is Tauri", r.host === "tauri"], ["engine is the system WebV
   ["file was read", (r.chars || 0) > 20], ["lines were rendered", (r.renderedLines || 0) >= 5],
   ["heading decoration", r.decorated.h1], ["quote decoration", r.decorated.quote], ["bold decoration", r.decorated.bold],
   ["list numbers line up on the dot", r.listDots != null && Math.abs(r.listDots) <= 0.6],
+  ["table rendered", r.decorated.table === true],
+  ["code block coloured (its language loaded as a separate chunk)", r.decorated.code === true],
   ["table of contents", (r.toc || 0) >= 1], ["minimap", (r.minimapRows || 0) >= 1],
   ["text clears the transparent title bar", process.platform !== "darwin" || (r.overlayTitlebar && r.toplineHeight >= 24)],
   ["refocusing the editor keeps the scroll position", r.focusKeepsScroll !== false],

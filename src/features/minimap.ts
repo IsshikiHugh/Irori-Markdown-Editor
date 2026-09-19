@@ -9,6 +9,7 @@
 import type { EditorView } from '@codemirror/view';
 import { codeLineDeco, decorateLine, fenceRanges, imageLine, lineHTML, listRows, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
 import type { Glide } from './glide';
+import { highlightBlock } from '../editor/highlight';
 
 const PAD = 10;
 /** hard ceiling on cloned rows, so a pathological viewport can never explode the DOM */
@@ -106,6 +107,7 @@ export function createMinimap(
     // from its first line, so it is cut off at the top just as the editor's is
     const tables = tableRanges((n) => doc.line(n).text, doc.lines).filter((t) => t.to >= fromLine && t.from <= toLine);
     const fences = fenceRanges((n) => doc.line(n).text, doc.lines).filter((r) => r.to >= fromLine && r.from <= toLine);
+    const colours = new Map<(typeof fences)[number], ReturnType<typeof highlightBlock>>();
 
     const parts: string[] = [];
     let rows = 0;
@@ -123,7 +125,16 @@ export function createMinimap(
       const text = line.text;
       const fence = fences.find((r) => n >= r.from && n <= r.to);
       if (fence) {
-        const deco = codeLineDeco(text, n === fence.from ? 'open' : fence.closed && n === fence.to ? 'close' : 'body');
+        const part = n === fence.from ? 'open' : fence.closed && n === fence.to ? 'close' : 'body';
+        const deco = codeLineDeco(text, part);
+        if (part === 'body') {
+          if (!colours.has(fence)) {
+            const body: string[] = [];
+            for (let k = fence.from + 1; k <= (fence.closed ? fence.to - 1 : fence.to); k++) body.push(doc.line(k).text);
+            colours.set(fence, highlightBlock(doc.line(fence.from).text, body));
+          }
+          deco.marks.push(...(colours.get(fence)?.[n - fence.from - 1] ?? []));
+        }
         const y = view.lineBlockAt(line.from).top + padTop();
         parts.push(`<div class="ln ${deco.lineClass}" style="top:${y.toFixed(2)}px">${lineHTML(text, deco)}</div>`);
         continue;

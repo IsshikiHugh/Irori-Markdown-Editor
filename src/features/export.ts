@@ -16,6 +16,7 @@
    `#print` is invisible on screen; only the print media shows it (style.css). */
 
 import type { Platform } from '../platform/types';
+import { highlightBlock, loadLanguages } from '../editor/highlight';
 import { basename } from '../platform/paths';
 import { codeLineDeco, decorateLine, fenceScan, imageLine, lineHTML, listScan, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
 
@@ -68,6 +69,7 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
   // a table is one row, rendered; a page may still end between two of its rows (lineGaps)
   const tables = tableRanges((n) => lines[n - 1], lines.length);
   const code = fenceScan(lines);
+  let colours: { at: number; marks: ReturnType<typeof highlightBlock> } = { at: 0, marks: null };
   let t = 0;
   lines.forEach((line, i) => {
     const table = tables[t];
@@ -82,6 +84,15 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
     const part = code[i];
     if (part) {
       const deco = codeLineDeco(line, part);
+      if (part === 'body') {
+        if (code[i - 1] === 'open') {
+          // a new block: colour it whole, once
+          let z = i;
+          while (code[z + 1] === 'body') z++;
+          colours = { at: i, marks: highlightBlock(lines[i - 1], lines.slice(i, z + 1)) };
+        }
+        deco.marks.push(...(colours.marks?.[i - colours.at] ?? []));
+      }
       const html = lineHTML(line, deco);
       rows.push({ html, cls: 'ln ' + deco.lineClass, style: '', heading: false, blank: false, text: true, line: i + 1 });
       return;
@@ -214,6 +225,10 @@ export function paginate(rows: (Measured & { heading: boolean; blank: boolean })
     fonts and pictures have settled and the pages are laid out. Returns the page count. */
 export async function preparePrint(text: string, resolveAsset: (src: string) => string | null): Promise<number> {
   document.getElementById('print')?.remove();
+  // the code blocks' languages, so they print coloured
+  const lines = text.split('\n');
+  const parts = fenceScan(lines);
+  await loadLanguages(lines.filter((_, i) => parts[i] === 'open'));
   const rows = buildRows(text, resolveAsset);
   rows[0].html = ornament();
 

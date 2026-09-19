@@ -592,4 +592,33 @@ export const cases = [
       t.eq('PDF', printed, 9);
     },
   },
+  {
+    id: 'B-93',
+    name: 'A code block that names its language is coloured — in the editor, the minimap and the PDF; an unknown one stays plain',
+    async run(t, ctx) {
+      const md = ['```ts', '// 注释', 'const s = "字";', '```', '', '```没有这种语言', 'const x = 1;', '```'].join('\n');
+      const page = await ctx.open({ files: { '/n/c.md': md }, startup: '/n/c.md' });
+      await sleep(1500); // the language loads on first use
+      const spans = (sel) =>
+        page.evaluate((s) => [...document.querySelectorAll(s)].map((e) => [e.className, e.textContent]), sel);
+      const ts = await spans('.cm-content .cm-line.cb [class^="tok-"]');
+      const has = (list, cls, text) => list.some(([c, x]) => c.includes(cls) && x === text);
+      t.ok('keyword', has(ts, 'tok-keyword', 'const'), JSON.stringify(ts));
+      t.ok('string', has(ts, 'tok-string', '"字"'), '');
+      t.ok('comment', has(ts, 'tok-comment', '// 注释'), '');
+      t.eq('the text is untouched', await docText(page), md);
+      const plain = await page.evaluate(() =>
+        [...document.querySelectorAll('.cm-content .cm-line.cb')].slice(4).some((l) => l.querySelector('[class^="tok-"]')),
+      );
+      t.ok('unknown language: plain', !plain, '');
+      t.ok('minimap coloured', (await spans('#miniContent .cb .tok-keyword')).length > 0, '');
+      const printed = await page.evaluate(async () => {
+        await window.__irori.preparePrint();
+        const n = document.querySelectorAll('#print .cb .tok-keyword').length;
+        window.__irori.clearPrint();
+        return n;
+      });
+      t.ok('PDF coloured', printed > 0, String(printed));
+    },
+  },
 ];

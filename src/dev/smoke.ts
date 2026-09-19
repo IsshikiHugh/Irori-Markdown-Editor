@@ -9,6 +9,7 @@
    It moved here from main.ts only to keep the assembly file readable — over ninety lines there
    used to be this. */
 import type { EditorView } from '@codemirror/view';
+import { loadLanguages } from '../editor/highlight';
 import type { Platform } from '../platform/types';
 import type { DocumentSession } from '../app/document';
 import type { SettingsStore } from '../app/settings';
@@ -85,6 +86,10 @@ if (smoke?.pdf) {
   await ctx.platform.writeText(smoke.out + '.pdfinfo', JSON.stringify(pdf));
 }
 if (smoke) {
+  // the code block's language is a chunk of its own, loaded on first use: wait for it, then for
+  // the editor to draw the colours
+  await loadLanguages(['```ts']);
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   await ctx.platform.writeText(
     smoke.out,
     JSON.stringify({
@@ -100,6 +105,8 @@ if (smoke) {
         quote: !!document.querySelector('.cm-line.quote'),
         bold: !!document.querySelector('.cm-content .b'),
         image: !!document.querySelector('.cm-content .imgrow'),
+        table: !!document.querySelector('.cm-content .mdtbl'),
+        code: !!document.querySelector('.cm-content .cb .tok-keyword'),
       },
       // right edge of the dot of "9." minus that of "10." — 0 when numbers right-align in WebKit too
       listDots: (() => {

@@ -37,6 +37,7 @@ import {
 } from './tokens';
 import type { QuoteState } from './tokens';
 import { isOpenClick, openLink } from './links';
+import { highlightBlock, onLanguageLoaded } from './highlight';
 
 /** How an image's relative `src` becomes something the webview can load. */
 export type AssetResolver = (src: string) => string | null;
@@ -285,6 +286,16 @@ function build(view: EditorView): DecorationSet {
   const anchorLine = doc.lineAt(state.selection.main.head).number;
   const { tables, fences } = state.field(blockField);
   const touches = (from: number, to: number) => state.selection.ranges.some((r) => r.from <= to && r.to >= from);
+  // syntax colours, one parse per code block on screen
+  const colours = new Map<Span, ReturnType<typeof highlightBlock>>();
+  const coloursOf = (f: Span & { closed: boolean }) => {
+    if (!colours.has(f)) {
+      const body: string[] = [];
+      for (let k = f.from + 1; k <= (f.closed ? f.to - 1 : f.to); k++) body.push(doc.line(k).text);
+      colours.set(f, highlightBlock(doc.line(f.from).text, body));
+    }
+    return colours.get(f);
+  };
 
   // An empty document's visibleRanges is an empty array (the viewport is 0..0), so the first line
   // would get no decoration at all: the font falls back to 16px/1.4, the caret is short and sits
@@ -313,6 +324,9 @@ function build(view: EditorView): DecorationSet {
         if (hovered === line.from) cls.push('mhover');
         out.push(Decoration.line({ class: cls.join(' ') }).range(line.from));
         for (const m of deco.marks) out.push(Decoration.mark({ class: m.cls }).range(line.from + m.from, line.from + m.to));
+        if (part === 'body')
+          for (const m of coloursOf(fence)?.[lineNo - fence.from - 1] ?? [])
+            out.push(Decoration.mark({ class: m.cls }).range(line.from + m.from, line.from + m.to));
         continue;
       }
       const table = tables.find((t) => lineNo >= t.from && lineNo <= t.to);
@@ -349,14 +363,22 @@ function build(view: EditorView): DecorationSet {
 
 const hideMarkup = Decoration.replace({});
 
+/** a code block's language has arrived: draw it again, coloured */
+const languageLoaded = StateEffect.define<null>();
+
 export const sourceDecoration: Extension = [
   hoverHighlight,
   blockField,
   ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
+      off: () => void;
       constructor(view: EditorView) {
         this.decorations = build(view);
+        this.off = onLanguageLoaded(() => view.dispatch({ effects: languageLoaded.of(null) }));
+      }
+      destroy() {
+        this.off();
       }
       update(u: ViewUpdate) {
         if (u.docChanged || u.viewportChanged || u.selectionSet || u.transactions.some((t) => t.effects.length))
