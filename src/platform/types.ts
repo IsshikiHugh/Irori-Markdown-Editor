@@ -97,6 +97,8 @@ export interface Platform {
   applyUpdate(): Promise<boolean>;
   /** the app is about to restart: save what needs saving, and answer */
   onPrepareRestart(handler: () => Promise<RestartReady>): void;
+  /** the restart was called off (a window declined, or installing failed): carry on */
+  onRestartCancelled(handler: () => void): void;
 
   loadSettings(): Promise<Partial<Settings> | null>;
   saveSettings(settings: Settings): Promise<void>;

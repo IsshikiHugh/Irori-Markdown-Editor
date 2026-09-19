@@ -7,7 +7,7 @@ import type { Platform } from './platform/types';
 import { SettingsStore } from './app/settings';
 import { DocumentSession } from './app/document';
 import { storeImage, UnsavedDocumentError } from './app/images';
-import { applyFont, createEditor } from './editor';
+import { applyFont, createEditor, setLocked } from './editor';
 import { createTOC } from './features/toc';
 import { createMinimap } from './features/minimap';
 import type { Minimap } from './features/minimap';
@@ -373,8 +373,8 @@ async function boot() {
   });
 
   // after everything else is up; a check that hangs or fails holds nothing up
-  const updates = createUpdates(platform, doc, toast);
-  void updates.auto();
+  const updates = createUpdates(platform, doc, toast, (on) => setLocked(view, on));
+  updates.auto();
 
   // test/debug handle — the app is driven through this in the behaviour suite
   window.__irori = {

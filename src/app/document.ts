@@ -36,6 +36,8 @@ export class DocumentSession {
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
   private asking = false;
+  /** waiting for the external-change question to be answered */
+  private decided: (() => void)[] = [];
 
   constructor(
     private platform: Platform,
@@ -67,7 +69,8 @@ export class DocumentSession {
     const { autosave, autosaveDelay } = this.settings();
     if (this.saveTimer) clearTimeout(this.saveTimer);
     if (autosave && this.path && !this.missing) {
-      this.saveTimer = setTimeout(() => void this.save(), autosaveDelay);
+      // never while the external-change question is open: that would overwrite the other version
+      this.saveTimer = setTimeout(() => void (this.asking || this.save()), autosaveDelay);
     }
   }
 
@@ -97,6 +100,10 @@ export class DocumentSession {
   /** ⌘S. A buffer with no path asks where to go first. Returns false if cancelled. */
   async save(): Promise<boolean> {
     if (this.saveTimer) clearTimeout(this.saveTimer);
+    if (this.asking) {
+      this.events.onToast('文件在外部被改动了，请先选择保留哪个版本');
+      return false;
+    }
     if (!this.path || this.missing) return this.saveAs();
     if (!this.dirty) return true;
     this.events.onState('saving');
@@ -180,8 +187,8 @@ export class DocumentSession {
         // keep mine: the next save overwrites, which is now an informed choice
         this.diskText = disk;
         this.asking = false;
-        this.dirty = true;
-        this.events.onState('dirty');
+        this.setText(this.text); // dirty again, and autosave (if on) picks it up
+        this.answered();
       },
       () => {
         this.diskText = disk;
@@ -190,12 +197,24 @@ export class DocumentSession {
         this.asking = false;
         this.events.onReload(disk);
         this.events.onState('saved');
+        this.answered();
       },
     );
   }
 
+  private answered() {
+    for (const done of this.decided.splice(0)) done();
+  }
+
+  /** Resolves once the external-change question (if one is open) has been answered: closing
+      or restarting must not decide it by saving over the other version. */
+  private whenDecided(): Promise<void> {
+    return this.asking ? new Promise((done) => this.decided.push(done)) : Promise.resolve();
+  }
+
   /** window is closing: true = may close */
   async requestClose(): Promise<boolean> {
+    await this.whenDecided();
     if (!this.dirty) return true;
     if (this.path && !this.missing) {
       await this.save();
@@ -210,6 +229,7 @@ export class DocumentSession {
       place, as closing does; an unnamed one with text asks to be saved first — it only lives in
       memory — and declining calls the restart off. */
   async prepareRestart(): Promise<boolean> {
+    await this.whenDecided();
     if (!this.dirty) return true;
     if (this.path && !this.missing) {
       await this.save();

@@ -379,4 +379,39 @@ export const cases = [
       t.eq('top bar follows', await page.evaluate(() => document.getElementById('filename').textContent), 'b.md');
     },
   },
+  {
+    id: 'B-91',
+    name: 'While the external-change question is open nothing saves over the other version; closing waits for the answer',
+    async run(t, ctx) {
+      const page = await ctx.open({
+        files: { '/n/a.md': '原来的内容' },
+        startup: '/n/a.md',
+        settings: { autosave: true, autosaveDelay: 300 },
+      });
+      const disk = () => page.evaluate(() => window.__irori.platform.files.get('/n/a.md').text);
+      await page.click('.cm-content');
+      await page.keyboard.type('我的');
+      // the external write lands before the autosave fires
+      await page.evaluate(async () => {
+        window.__irori.platform.files.set('/n/a.md', { text: '别处写入的内容', mtimeMs: Date.now() + 5000 });
+        await window.__irori.doc.checkDisk();
+      });
+      await sleep(600);
+      t.ok('the question is open', await page.evaluate(() => document.getElementById('conflict').classList.contains('open')), '');
+      t.eq('the pending autosave did not overwrite it', await disk(), '别处写入的内容');
+      await page.keyboard.down(MOD);
+      await page.keyboard.press('s');
+      await page.keyboard.up(MOD);
+      await sleep(150);
+      t.eq('nor does ⌘S', await disk(), '别处写入的内容');
+
+      // closing waits for the answer instead of saving over it
+      const closed = page.evaluate(() => window.__irori.doc.requestClose());
+      await sleep(200);
+      t.eq('still the other version while it waits', await disk(), '别处写入的内容');
+      await page.click('#ckeep');
+      t.ok('then closing goes ahead', await closed, '');
+      t.eq('keeping mine saves mine', await disk(), '原来的内容我的');
+    },
+  },
 ];

@@ -124,7 +124,12 @@ export class WebPlatform implements Platform {
   async applyUpdate() {
     const ready = (await this.prepareHandler?.()) ?? { ok: true, path: null };
     if (ready.ok) this.restarts.push(ready.path);
+    else this.cancelHandler?.();
     return ready.ok;
+  }
+  cancelHandler: (() => void) | null = null;
+  onRestartCancelled(handler: () => void) {
+    this.cancelHandler = handler;
   }
   onPrepareRestart(handler: () => Promise<RestartReady>) {
     this.prepareHandler = handler;

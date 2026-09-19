@@ -212,6 +212,12 @@ describe('links', () => {
     expect(linkAt(text, 0)).toBeNull();
     expect(linkAt(text, text.length - 1)).toBeNull();
   });
+  it('keeps parentheses inside the URL, as Wikipedia links have them', () => {
+    const text = '见 [维基](https://en.wikipedia.org/wiki/Foo_(bar)) 后';
+    expect(linkAt(text, 3)).toBe('https://en.wikipedia.org/wiki/Foo_(bar)');
+    const [l] = linkParts(text, inlineMarks(text));
+    expect(text.slice(l.tail.from, l.tail.to)).toBe('](https://en.wikipedia.org/wiki/Foo_(bar))');
+  });
   it('leaves an image source and code alone', () => {
     expect(linkParts('![a](b.png)', inlineMarks('![a](b.png)'))).toEqual([]);
     expect(linkParts('`[a](b)`', inlineMarks('`[a](b)`'))).toEqual([]);

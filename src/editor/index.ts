@@ -32,6 +32,7 @@ export type EditorHooks = {
 };
 
 const fontCompartment = new Compartment();
+const lockCompartment = new Compartment();
 
 /** Wrap the selection in `mark` (⌘B / ⌘I), or drop empty markers at the caret. */
 function wrapWith(mark: string) {
@@ -156,6 +157,7 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
         imagePaste,
         caretLife,
         fontCompartment.of([]),
+        lockCompartment.of([]),
         keymap.of([
           ...imageNavKeymap,
           { key: 'Mod-s', preventDefault: true, run: () => (hooks.onSave(), true) },
@@ -189,6 +191,14 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
     }),
   });
   return view;
+}
+
+/** Stop (or resume) taking edits — a window that is ready for an update restart must not
+    change after it has saved. */
+export function setLocked(view: EditorView, on: boolean) {
+  view.dispatch({
+    effects: lockCompartment.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
+  });
 }
 
 /** Swap the writing font without touching the document (settings). */

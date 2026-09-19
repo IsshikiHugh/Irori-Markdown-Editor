@@ -49,8 +49,8 @@ const RULES: Rule[] = [
     ],
   },
   {
-    // [text](url)
-    re: /\[([^\]]*)\]\(([^)]+)\)/g,
+    // [text](url) — the url may hold one level of parentheses, as Wikipedia's do: (Foo_(bar))
+    re: /\[([^\]]*)\]\(((?:[^()]|\([^()]*\))+)\)/g,
     marks: (m, at) => {
       const openTo = at + 1;
       const midFrom = at + 1 + m[1].length;

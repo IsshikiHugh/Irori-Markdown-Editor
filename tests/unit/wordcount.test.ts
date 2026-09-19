@@ -22,6 +22,8 @@ describe('word count (generic: Chinese by character, English by word)', () => {
     expect(countText('**粗体**').chars).toBe(2);
     expect(countText('[文字](https://example.com/very/long)').chars).toBe(2);
     expect(countText('![](img.png)').chars + countText('![](img.png)').words).toBe(0);
+    const wiki = countText('[维基](https://en.wikipedia.org/wiki/Foo_(bar))');
+    expect([wiki.chars, wiki.words]).toEqual([2, 0]);
   });
 
   it('ignores punctuation and whitespace', () => {

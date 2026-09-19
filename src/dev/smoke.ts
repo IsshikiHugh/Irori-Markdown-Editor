@@ -43,9 +43,14 @@ if (smoke) {
     el.scrollTop = probe;
     // Put the caret somewhere visible at the probe position: otherwise, with focus mode on,
     // "bring the caret back into the focus band" would itself change the scroll position, and the
-    // probe could no longer measure what it is really meant to
-    const at = ctx.view.posAtCoords({ x: ctx.view.contentDOM.getBoundingClientRect().left + 20, y: el.getBoundingClientRect().top + el.clientHeight / 2 }, false);
-    ctx.view.dispatch({ selection: { anchor: at ?? 0 } });
+    // probe could no longer measure what it is really meant to. And on a line of plain text: on a
+    // picture, a table or a link the caret turns it back into source, which changes the heights
+    // above — a moved scroll position the probe would blame on the refocus.
+    const doc = ctx.view.state.doc;
+    const mid = ctx.view.posAtCoords({ x: ctx.view.contentDOM.getBoundingClientRect().left + 20, y: el.getBoundingClientRect().top + el.clientHeight / 2 }, false);
+    let n = doc.lineAt(mid ?? 0).number;
+    while (n < doc.lines && /[[|]/.test(doc.line(n).text)) n++;
+    ctx.view.dispatch({ selection: { anchor: doc.line(n).from } });
     ctx.view.contentDOM.blur();
     await new Promise((r) => setTimeout(r, 80));
     ctx.focusEditor();

@@ -1,7 +1,7 @@
 /* The drawer, the shortcut layer, font settings, and the fact that v1 has no menu bar. */
 import fs from 'node:fs';
 import path from 'node:path';
-import { MOD, ROOT, sleep } from '../harness.mjs';
+import { MOD, ROOT, docText, sleep } from '../harness.mjs';
 
 export const cases = [
   {
@@ -486,12 +486,12 @@ export const cases = [
       await sleep(300);
       t.ok('failure is reported', (await text(page)).includes('offline'), await text(page));
       t.eq('and nothing restarted', await host(page, () => window.__irori.platform.restarts.length), 0);
+      t.ok('clicking the note left the text its focus', await host(page, () => window.__irori.view.hasFocus), '');
       await host(page, () => (window.__irori.platform.downloadError = null));
       await page.click('#uyes');
       await sleep(300);
       t.eq('retry downloads', await host(page, () => window.__irori.platform.downloads), 2);
       t.eq('then restarts by itself, reopening the file', await host(page, () => window.__irori.platform.restarts), ['/n/a.md']);
-      t.ok('the text still has focus', await host(page, () => window.__irori.view.hasFocus), '');
 
       // "later" just puts it away
       const later = await ctx.open({ files: { '/n/a.md': 'x' }, startup: '/n/a.md', update: { version: '9.9.9' } });
@@ -561,12 +561,19 @@ export const cases = [
       t.eq('declined: no restart', await restart(blank), []);
       t.ok('asked to save', (await host(blank, () => window.__irori.platform.confirmed.at(-1))).includes('保存'), '');
       t.ok('offers to try again', (await host(blank, () => document.getElementById('uyes').textContent)) === '重启并更新', '');
+      await blank.click('.cm-content');
+      await blank.keyboard.type('续');
+      t.eq('called off: the page takes edits again', await docText(blank), '草稿续');
       await host(blank, () => {
         window.__irori.platform.confirmAnswer = true;
         window.__irori.platform.dialogQueue.push('/n/草稿.md');
       });
       t.eq('accepted: saved, then restarts into it', await restart(blank), ['/n/草稿.md']);
-      t.eq('the draft is on disk', await host(blank, () => window.__irori.platform.files.get('/n/草稿.md')?.text), '草稿');
+      t.eq('the draft is on disk', await host(blank, () => window.__irori.platform.files.get('/n/草稿.md')?.text), '草稿续');
+      // ready means locked: nothing typed now could be kept by the restart
+      await blank.click('.cm-content');
+      await blank.keyboard.type('丢');
+      t.eq('once ready it takes no edits', await docText(blank), '草稿续');
 
       // an empty blank page has nothing to save
       const empty = await ctx.open({ update: { version: '9.9.9' } });

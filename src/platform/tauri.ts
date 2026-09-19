@@ -96,9 +96,14 @@ export class TauriPlatform implements Platform {
   applyUpdate() {
     return invoke<boolean>('apply_update');
   }
+  onRestartCancelled(handler: () => void) {
+    void getCurrentWebviewWindow().listen('irori://restart-cancelled', () => handler());
+  }
   onPrepareRestart(handler: () => Promise<RestartReady>) {
     // addressed to this window only: the shell asks the windows one at a time
     void getCurrentWebviewWindow().listen('irori://prepare-restart', async () => {
+      // "heard it" first: a window that stays silent is taken to be gone
+      await invoke('restart_ack');
       let ready: RestartReady = { ok: false, path: null };
       try {
         ready = await handler();

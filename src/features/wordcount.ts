@@ -22,8 +22,8 @@ export function plainText(md: string): string {
   return out
     .join('\n')
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/!\[[^\]]*\]\((?:[^()]|\([^()]*\))*\)/g, '')
+    .replace(/\[([^\]]*)\]\((?:[^()]|\([^()]*\))*\)/g, '$1')
     .replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1')
     .replace(/`+/g, '')
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
