@@ -17,7 +17,7 @@
 
 import type { Platform } from '../platform/types';
 import { basename } from '../platform/paths';
-import { decorateLine, imageLine, lineHTML, listScan, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
+import { codeLineDeco, decorateLine, fenceScan, imageLine, lineHTML, listScan, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
 
 /** A4 height at 96 CSS px per inch (the width, 210mm, lives in style.css). */
 export const PAGE_H = 1122.5;
@@ -67,6 +67,7 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
   const rows: Row[] = [{ html: '', cls: 'porn', style: '', heading: false, blank: false, text: false, line: 0 }];
   // a table is one row, rendered; a page may still end between two of its rows (lineGaps)
   const tables = tableRanges((n) => lines[n - 1], lines.length);
+  const code = fenceScan(lines);
   let t = 0;
   lines.forEach((line, i) => {
     const table = tables[t];
@@ -76,6 +77,13 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
         rows.push({ html, cls: 'ln tblrow', style: '', heading: false, blank: false, text: true, line: i + 1 });
       }
       if (i + 1 === table.to) t++;
+      return;
+    }
+    const part = code[i];
+    if (part) {
+      const deco = codeLineDeco(line, part);
+      const html = lineHTML(line, deco);
+      rows.push({ html, cls: 'ln ' + deco.lineClass, style: '', heading: false, blank: false, text: true, line: i + 1 });
       return;
     }
     const { deco, style } = withListRow(line, decorateLine(line), lists[i]);

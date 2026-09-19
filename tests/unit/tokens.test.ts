@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  codeLineDeco,
   decorateLine,
+  fenceRanges,
+  fenceScan,
   imageLine,
   inlineMarks,
   lineHTML,
@@ -268,5 +271,37 @@ describe('tables', () => {
     expect(d.marks.filter((m) => m.cls === 'tok' && m.to - m.from === 1).length).toBeGreaterThanOrEqual(3);
     expect(d.marks.some((m) => m.cls === 'b')).toBe(true);
     expect(tableSourceDeco('| --- |', true).marks).toEqual([{ from: 0, to: 7, cls: 'tok' }]);
+  });
+});
+
+describe('fenced code blocks', () => {
+  const doc = ['正文', '```ts', '# 不是标题', '| a | b |', '| - | - |', '```', '后文', '~~~', '没闭合'];
+  const at = (n: number) => doc[n - 1];
+
+  it('finds blocks, closed or running to the end', () => {
+    expect(fenceRanges(at, doc.length)).toEqual([
+      { from: 2, to: 6, closed: true },
+      { from: 8, to: 9, closed: false },
+    ]);
+  });
+  it('closes only on the same fence, at least as long', () => {
+    const d = ['````', '```', '~~~~', '````'];
+    expect(fenceRanges((n) => d[n - 1], d.length)).toEqual([{ from: 1, to: 4, closed: true }]);
+  });
+  it('does not take inline code for a fence', () => {
+    expect(fenceRanges((n) => ['```a`b```'][n - 1], 1)).toEqual([]);
+  });
+  it('labels each line', () => {
+    expect(fenceScan(doc)).toEqual([null, 'open', 'body', 'body', 'body', 'close', null, 'open', 'body']);
+  });
+  it('dims the fences and the language, and leaves code alone', () => {
+    expect(codeLineDeco('```ts', 'open').marks).toEqual([
+      { from: 0, to: 3, cls: 'tok' },
+      { from: 3, to: 5, cls: 'cblang' },
+    ]);
+    expect(codeLineDeco('**不是粗体** [x](y)', 'body').marks).toEqual([]);
+  });
+  it('keeps a table inside a code block from being a table', () => {
+    expect(tableRanges(at, doc.length)).toEqual([]);
   });
 });

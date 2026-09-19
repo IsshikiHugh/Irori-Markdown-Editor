@@ -11,10 +11,12 @@ import type { KeyBinding } from '@codemirror/view';
 import { EditorView } from '@codemirror/view';
 import type { EditorState } from '@codemirror/state';
 import { imageLine } from './tokens';
-import { inTable } from './decorations';
+import { inCode, inTable } from './decorations';
 
 const isBlock = (state: EditorState, lineNo: number) =>
-  lineNo >= 1 && lineNo <= state.doc.lines && (!!imageLine(state.doc.line(lineNo).text) || !!inTable(state, lineNo));
+  lineNo >= 1 &&
+  lineNo <= state.doc.lines &&
+  ((!!imageLine(state.doc.line(lineNo).text) && !inCode(state, lineNo)) || !!inTable(state, lineNo));
 
 /** Is the caret on the last (or first) visual row of its wrapped line?
     Measured by comparing visual rows, not box edges: with line-height 2.05 the caret is

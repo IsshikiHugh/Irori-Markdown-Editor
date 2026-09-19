@@ -143,6 +143,13 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .imgwrap:hover .imgsrc{opacity:1;}
 .imgmiss{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#b3452e;background:rgba(179,69,46,.08);border:1px dashed rgba(179,69,46,.4);border-radius:6px;padding:4px 10px;line-height:1.4;}
 
+/* ---- fenced code blocks (tokens.ts: codeLineDeco): one band of monospace, fences dimmed ---- */
+.ln.cb,.cm-editor .cm-line.ln.cb{font-family:ui-monospace,Menlo,monospace;font-size:15px;line-height:1.8;color:#5b4f47;background-color:#f1ebe3;border-radius:0;padding:0 14px;tab-size:4;}
+.ln.cb.cbopen,.cm-editor .cm-line.ln.cb.cbopen{border-radius:8px 8px 0 0;padding-top:4px;}
+.ln.cb.cbclose,.cm-editor .cm-line.ln.cb.cbclose{border-radius:0 0 8px 8px;padding-bottom:4px;}
+.ln.cb.mhover{background-color:#ede6dd;} .ln.cb.aline{background-color:#e9e1d6;}
+.cblang{color:#b3a892;}
+
 /* ---- tables: rendered away from the caret (editor/decorations.ts), source with it ----
    The rendered table is a reading view: its cells hide the markdown markup, links show only
    their text. The minimap and the PDF hide link markup everywhere (the editor replaces it). */

@@ -237,6 +237,54 @@ export function withListRow(text: string, deco: LineDeco, row: ListRow | null | 
   };
 }
 
+/* ---------- fenced code blocks ----------
+   ``` or ~~~ (three or more) opens a block; the same character, at least as many times, alone
+   on its line, closes it — or the end of the document does. Inside, nothing is markdown: no
+   heading, list, table or link is recognised, and the lines are shown as code. The fences
+   stay visible, dimmed, like any other markup. */
+
+const RE_FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
+/** Lines (1-based, inclusive) of every fenced code block, fences included; `closed` is false
+    for one that runs to the end of the document. */
+export function fenceRanges(line: (n: number) => string, lines: number): { from: number; to: number; closed: boolean }[] {
+  const out: { from: number; to: number; closed: boolean }[] = [];
+  for (let n = 1; n <= lines; n++) {
+    const m = RE_FENCE.exec(line(n));
+    // an info string after backticks may not contain a backtick (that is inline code)
+    if (!m || (m[1][0] === '`' && m[2].includes('`'))) continue;
+    const close = new RegExp(`^ {0,3}${m[1][0] === '`' ? '`' : '~'}{${m[1].length},}[ \t]*$`);
+    let z = n + 1;
+    while (z <= lines && !close.test(line(z))) z++;
+    out.push({ from: n, to: Math.min(z, lines), closed: z <= lines });
+    n = z;
+  }
+  return out;
+}
+
+/** Per line (0-based): which part of a code block it is, if any. */
+export type FencePart = 'open' | 'body' | 'close' | null;
+export function fenceScan(lines: string[]): FencePart[] {
+  const out: FencePart[] = lines.map(() => null);
+  for (const r of fenceRanges((n) => lines[n - 1], lines.length)) {
+    for (let n = r.from; n <= r.to; n++) out[n - 1] = 'body';
+    out[r.from - 1] = 'open';
+    if (r.closed) out[r.to - 1] = 'close';
+  }
+  return out;
+}
+
+/** A line of a code block: monospace, no markdown; the fences (and the language after the
+    opening one) are markup. */
+export function codeLineDeco(text: string, part: Exclude<FencePart, null>): LineDeco {
+  const cls = part === 'body' ? 'cb' : part === 'open' ? 'cb cbopen' : 'cb cbclose';
+  if (part === 'body' || !text) return { lineClass: cls, marks: [] };
+  const fence = /^ {0,3}(`+|~+)/.exec(text)![0].length;
+  const marks: Mark[] = [{ from: 0, to: fence, cls: 'tok' }];
+  if (text.length > fence) marks.push({ from: fence, to: text.length, cls: 'cblang' });
+  return { lineClass: cls, marks };
+}
+
 /* ---------- links ----------
    Away from the caret a link shows only its text: the `[` in front and the `](url)` behind
    are hidden (the editor replaces them; the minimap and the PDF hide them with CSS). */
@@ -314,6 +362,11 @@ function delimiter(text: string): Align[] | null {
 
 /** Lines (1-based, inclusive) of every table in the document. */
 export function tableRanges(line: (n: number) => string, lines: number): { from: number; to: number }[] {
+  // a table inside a code block is just code
+  const code = new Uint8Array(lines + 2);
+  for (const r of fenceRanges(line, lines)) code.fill(1, r.from, r.to + 1);
+  const src = line;
+  line = (n) => (code[n] ? '' : src(n));
   const out: { from: number; to: number }[] = [];
   for (let n = 1; n < lines; n++) {
     const head = line(n);

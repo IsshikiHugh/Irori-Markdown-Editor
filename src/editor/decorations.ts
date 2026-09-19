@@ -21,7 +21,9 @@ import type { DecorationSet, ViewUpdate } from '@codemirror/view';
 import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import type { EditorState, Extension, Range } from '@codemirror/state';
 import {
+  codeLineDeco,
   decorateLine,
+  fenceRanges,
   imageLine,
   isQuoteReset,
   linkParts,
@@ -184,13 +186,16 @@ function caretLines(state: EditorState): Set<number> {
   return out;
 }
 
-type Blocks = { deco: DecorationSet; tables: { from: number; to: number }[] };
+type Span = { from: number; to: number };
+type Blocks = { deco: DecorationSet; tables: Span[]; fences: (Span & { closed: boolean })[] };
 
 function buildBlocks(state: EditorState): Blocks {
   const b = new RangeSetBuilder<Decoration>();
   const live = caretLines(state);
   const doc = state.doc;
   const tables = tableRanges((n) => doc.line(n).text, doc.lines);
+  const fences = fenceRanges((n) => doc.line(n).text, doc.lines);
+  let f = 0;
   let t = 0;
   let n = 0;
   let st = QUOTE_START;
@@ -214,6 +219,8 @@ function buildBlocks(state: EditorState): Blocks {
     }
     if (table && n === table.to) t++;
     if (table && n >= table.from && n <= table.to) continue;
+    while (fences[f] && fences[f].to < n) f++;
+    if (fences[f] && n >= fences[f].from) continue; // code: an image line in it is just code
     if (line.length < 5 || line.indexOf('![') < 0) continue; // cheap reject for the common case
     const img = imageLine(line);
     if (!img || live.has(n)) continue;
@@ -224,7 +231,7 @@ function buildBlocks(state: EditorState): Blocks {
       Decoration.replace({ widget: new ImageWidget(line, img.quote, img.alt, img.src, hit.member), block: true }),
     );
   }
-  return { deco: b.finish(), tables };
+  return { deco: b.finish(), tables, fences };
 }
 
 const blockField = StateField.define<Blocks>({
@@ -243,6 +250,11 @@ const blockField = StateField.define<Blocks>({
   },
   provide: (f) => EditorView.decorations.from(f, (blocks) => blocks.deco),
 });
+
+/** Is line `n` inside a fenced code block (fences included)? */
+export function inCode(state: EditorState, n: number): boolean {
+  return state.field(blockField).fences.some((r) => n >= r.from && n <= r.to);
+}
 
 /** Is line `n` part of a table? (Lines 1-based; also used by the arrow-key navigation.) */
 export function inTable(state: EditorState, n: number): { from: number; to: number } | null {
@@ -271,7 +283,7 @@ function build(view: EditorView): DecorationSet {
   // the current-line highlight follows the caret itself (the head of the main range),
   // exactly like the blog editor's updateActiveLine()
   const anchorLine = doc.lineAt(state.selection.main.head).number;
-  const { tables } = state.field(blockField);
+  const { tables, fences } = state.field(blockField);
   const touches = (from: number, to: number) => state.selection.ranges.some((r) => r.from <= to && r.to >= from);
 
   // An empty document's visibleRanges is an empty array (the viewport is 0..0), so the first line
@@ -292,6 +304,17 @@ function build(view: EditorView): DecorationSet {
       const hit = quoteStep(st, text);
       st = hit.state;
 
+      const fence = fences.find((r) => lineNo >= r.from && lineNo <= r.to);
+      if (fence) {
+        const part = lineNo === fence.from ? 'open' : fence.closed && lineNo === fence.to ? 'close' : 'body';
+        const deco = codeLineDeco(text, part);
+        const cls = ['ln', deco.lineClass];
+        if (lineNo === anchorLine) cls.push('aline');
+        if (hovered === line.from) cls.push('mhover');
+        out.push(Decoration.line({ class: cls.join(' ') }).range(line.from));
+        for (const m of deco.marks) out.push(Decoration.mark({ class: m.cls }).range(line.from + m.from, line.from + m.to));
+        continue;
+      }
       const table = tables.find((t) => lineNo >= t.from && lineNo <= t.to);
       if (table && ![...live].some((k) => k >= table.from && k <= table.to)) continue; // rendered by blockField
       const img = table ? null : imageLine(text);

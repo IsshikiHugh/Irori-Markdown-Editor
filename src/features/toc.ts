@@ -6,6 +6,7 @@
 
 import type { EditorView } from '@codemirror/view';
 import type { Glide } from './glide';
+import { fenceRanges } from '../editor/tokens';
 
 const HEAD = /^(#{1,3})\s+(.*)$/;
 
@@ -13,7 +14,11 @@ export type Heading = { level: number; text: string; pos: number };
 
 export function scanHeadings(doc: { lines: number; line: (n: number) => { text: string; from: number } }): Heading[] {
   const out: Heading[] = [];
+  // a `#` line inside a code block is code (a shell comment, say), not a heading
+  const code = new Uint8Array(doc.lines + 2);
+  for (const r of fenceRanges((n) => doc.line(n).text, doc.lines)) code.fill(1, r.from, r.to + 1);
   for (let n = 1; n <= doc.lines; n++) {
+    if (code[n]) continue;
     const line = doc.line(n);
     const m = line.text.match(HEAD);
     if (m) out.push({ level: m[1].length, text: m[2], pos: line.from });

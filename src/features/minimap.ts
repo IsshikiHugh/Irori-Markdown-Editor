@@ -7,7 +7,7 @@
    same cost as a short one while staying pixel-aligned with the real text. */
 
 import type { EditorView } from '@codemirror/view';
-import { decorateLine, imageLine, lineHTML, listRows, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
+import { codeLineDeco, decorateLine, fenceRanges, imageLine, lineHTML, listRows, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
 import type { Glide } from './glide';
 
 const PAD = 10;
@@ -105,6 +105,7 @@ export function createMinimap(
     // tables always show rendered here, like pictures; one that starts above the band is drawn
     // from its first line, so it is cut off at the top just as the editor's is
     const tables = tableRanges((n) => doc.line(n).text, doc.lines).filter((t) => t.to >= fromLine && t.from <= toLine);
+    const fences = fenceRanges((n) => doc.line(n).text, doc.lines).filter((r) => r.to >= fromLine && r.from <= toLine);
 
     const parts: string[] = [];
     let rows = 0;
@@ -120,6 +121,13 @@ export function createMinimap(
       }
       const line = doc.line(n);
       const text = line.text;
+      const fence = fences.find((r) => n >= r.from && n <= r.to);
+      if (fence) {
+        const deco = codeLineDeco(text, n === fence.from ? 'open' : fence.closed && n === fence.to ? 'close' : 'body');
+        const y = view.lineBlockAt(line.from).top + padTop();
+        parts.push(`<div class="ln ${deco.lineClass}" style="top:${y.toFixed(2)}px">${lineHTML(text, deco)}</div>`);
+        continue;
+      }
       const rail = rails[n - scanFrom];
       const { deco, style } = withListRow(text, decorateLine(text), lists[n - fromLine]);
       const cls = ['ln'];

@@ -548,4 +548,48 @@ export const cases = [
       t.ok('the table stays rendered', await page.evaluate(() => !!document.querySelector('.cm-content .mdtbl')), '');
     },
   },
+  {
+    id: 'B-92',
+    name: 'A fenced code block is one band of code: nothing in it is markdown, Enter does not continue a list, the outline skips it',
+    async run(t, ctx) {
+      const md = ['# 标题', '', '```sh', '# 注释', '- 不是列表', '[x](y) 和 **不是粗体**', '| a | b |', '| - | - |', '![](img.png)', '```', '', '正文'].join('\n');
+      const page = await ctx.open({ files: { '/n/c.md': md }, startup: '/n/c.md' });
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.length } });
+      });
+      await sleep(150);
+      const rows = await page.evaluate(() =>
+        [...document.querySelectorAll('.cm-content .cm-line')].map((l) => ({ text: l.textContent, cls: [...l.classList] })),
+      );
+      const code = rows.filter((r) => r.cls.includes('cb'));
+      t.eq('every line of the block, fences included, is code', code.length, 8);
+      t.ok('the fences are marked', code[0].cls.includes('cbopen') && code[7].cls.includes('cbclose'), JSON.stringify([code[0].cls, code[7].cls]));
+      t.ok('no heading, list or other markup inside', code.every((r) => !r.cls.some((c) => /^h\d$|^li$|^quote$|^imgrow$/.test(c))), '');
+      t.eq('text shows exactly as written (no collapsed link, no table, no picture)', code.map((r) => r.text), md.split('\n').slice(2, 10));
+      t.ok('no rendered table or image', await page.evaluate(() => !document.querySelector('.cm-content .mdtbl, .cm-content .imgwrap')), '');
+      t.ok('no bold inside', await page.evaluate(() => !document.querySelector('.cm-line.cb .b')), '');
+      t.eq('the outline has only the real heading', await page.evaluate(() => window.__irori.toc.headings().map((h) => h.text)), ['标题']);
+
+      // Enter on "- 不是列表" inside the block is a plain newline
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(5).to } });
+        v.focus();
+      });
+      await page.keyboard.press('Enter');
+      await sleep(80);
+      t.eq('no list item added', await page.evaluate(() => window.__irori.view.state.doc.line(6).text), '');
+
+      // the minimap and the PDF show it as code too
+      t.ok('minimap', await page.evaluate(() => document.querySelectorAll('#miniContent .cb').length >= 8), '');
+      const printed = await page.evaluate(async () => {
+        await window.__irori.preparePrint();
+        const n = document.querySelectorAll('#print .ln.cb').length;
+        window.__irori.clearPrint();
+        return n;
+      });
+      t.eq('PDF', printed, 9);
+    },
+  },
 ];

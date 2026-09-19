@@ -10,6 +10,7 @@
 
 import type { EditorView } from '@codemirror/view';
 import { listItem } from './tokens';
+import { inCode } from './decorations';
 import type { ListItem } from './tokens';
 
 const nextMarker = (li: ListItem) =>
@@ -20,6 +21,7 @@ export function continueList(view: EditorView): boolean {
   const range = state.selection.main;
   if (!range.empty) return false;
   const line = state.doc.lineAt(range.head);
+  if (inCode(state, line.number)) return false; // `- ` in a code block is code
   const li = listItem(line.text);
   if (!li) return false;
   const lead = li.indent.length + li.marker.length + li.gap.length;
