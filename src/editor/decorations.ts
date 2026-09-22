@@ -24,17 +24,15 @@ import type { EditorState, Extension, Range } from '@codemirror/state';
 import {
   codeLineDeco,
   decorateLine,
-  fenceRanges,
+  blockRanges,
   imageLine,
   isQuoteReset,
   linkParts,
   listRows,
   mathLineDeco,
-  mathRanges,
   quoteStep,
   QUOTE_START,
   tableHTML,
-  tableRanges,
   tableSourceDeco,
   withListRow,
 } from './tokens';
@@ -274,15 +272,16 @@ function buildBlocks(state: EditorState): Blocks {
   const b = new RangeSetBuilder<Decoration>();
   const live = caretLines(state);
   const doc = state.doc;
-  const tables = tableRanges((n) => doc.line(n).text, doc.lines);
-  const fences = fenceRanges((n) => doc.line(n).text, doc.lines);
-  const maths = mathRanges((n) => doc.line(n).text, doc.lines);
+  // one array of the text, one scan for all three kinds of block
+  const texts: string[] = [];
+  for (const l of doc.iterLines()) texts.push(l);
+  const { fences, maths, tables } = blockRanges((n) => texts[n - 1], texts.length);
   let f = 0;
   let t = 0;
   let k = 0;
   let n = 0;
   let st = QUOTE_START;
-  for (const line of doc.iterLines()) {
+  for (const line of texts) {
     n++;
     const hit = quoteStep(st, line);
     st = hit.state;

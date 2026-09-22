@@ -323,12 +323,21 @@ export type MathRange = { from: number; to: number; tex: string };
 
 /** Lines (1-based, inclusive) of every math block, with the TeX inside it. */
 export function mathRanges(line: (n: number) => string, lines: number): MathRange[] {
-  const code = new Uint8Array(lines + 2);
-  for (const r of fenceRanges(line, lines)) code.fill(1, r.from, r.to + 1);
+  return mathIn(line, lines, codeMask(fenceRanges(line, lines), lines));
+}
+
+/** 1 for every line (1-based) inside one of `ranges` */
+function codeMask(ranges: { from: number; to: number }[], lines: number, into: Uint8Array = new Uint8Array(lines + 2)): Uint8Array {
+  for (const r of ranges) into.fill(1, r.from, r.to + 1);
+  return into;
+}
+
+function mathIn(line: (n: number) => string, lines: number, code: Uint8Array): MathRange[] {
   const out: MathRange[] = [];
   for (let n = 1; n <= lines; n++) {
     if (code[n]) continue;
     const text = line(n);
+    if (text.indexOf('$$') < 0) continue; // cheap reject for the common case
     const one = RE_MATH_ONE.exec(text);
     if (one) {
       out.push({ from: n, to: n, tex: one[1].trim() });
@@ -445,10 +454,21 @@ function delimiter(text: string): Align[] | null {
 
 /** Lines (1-based, inclusive) of every table in the document. */
 export function tableRanges(line: (n: number) => string, lines: number): { from: number; to: number }[] {
+  return blockRanges(line, lines).tables;
+}
+
+/** Every multi-line block of a document in one pass over its fences: code blocks, then math
+    blocks outside them, then tables outside both. The editor rebuilds these on every edit, so
+    the fences are found once, not once per kind. */
+export function blockRanges(line: (n: number) => string, lines: number) {
+  const fences = fenceRanges(line, lines);
+  const code = codeMask(fences, lines);
+  const maths = mathIn(line, lines, code);
+  return { fences, maths, tables: tablesIn(line, lines, codeMask(maths, lines, code)) };
+}
+
+function tablesIn(line: (n: number) => string, lines: number, code: Uint8Array): { from: number; to: number }[] {
   // a table inside a code or math block is just code
-  const code = new Uint8Array(lines + 2);
-  for (const r of fenceRanges(line, lines)) code.fill(1, r.from, r.to + 1);
-  for (const r of mathRanges(line, lines)) code.fill(1, r.from, r.to + 1);
   const src = line;
   line = (n) => (code[n] ? '' : src(n));
   const out: { from: number; to: number }[] = [];
