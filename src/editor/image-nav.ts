@@ -1,4 +1,4 @@
-/* Arrow keys must step ONTO an image line or into a table, not over it.
+/* Arrow keys must step ONTO an image line or into a table or a math block, not over it.
 
    A picture is a block widget that replaces its line (a table, its lines), and CodeMirror's
    default vertical motion treats such a block as one opaque thing to jump past. The blog
@@ -11,12 +11,12 @@ import type { KeyBinding } from '@codemirror/view';
 import { EditorView } from '@codemirror/view';
 import type { EditorState } from '@codemirror/state';
 import { imageLine } from './tokens';
-import { inCode, inTable } from './decorations';
+import { inCode, inMath, inTable } from './decorations';
 
 const isBlock = (state: EditorState, lineNo: number) =>
   lineNo >= 1 &&
   lineNo <= state.doc.lines &&
-  ((!!imageLine(state.doc.line(lineNo).text) && !inCode(state, lineNo)) || !!inTable(state, lineNo));
+  ((!!imageLine(state.doc.line(lineNo).text) && !inCode(state, lineNo)) || !!inTable(state, lineNo) || !!inMath(state, lineNo));
 
 /** Is the caret on the last (or first) visual row of its wrapped line?
     Measured by comparing visual rows, not box edges: with line-height 2.05 the caret is
@@ -40,6 +40,8 @@ function step(view: EditorView, dir: 1 | -1, requireEdge: boolean): boolean {
   // already inside that table: moving within it is ordinary motion
   const here = inTable(state, line.number);
   if (here && here === inTable(state, targetNo)) return false;
+  const formula = inMath(state, line.number);
+  if (formula && formula === inMath(state, targetNo)) return false;
   if (requireEdge && !atEdge(view, dir === 1)) return false;
   if (!requireEdge) {
     // horizontal motion: only at the very edge of the current line

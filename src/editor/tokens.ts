@@ -7,7 +7,8 @@
    ported verbatim from the blog editor, because "the same text must decorate the same
    way" is the acceptance criterion. The old code stashed already-parsed spans behind
    placeholders so later regexes could not scan into injected HTML; here we mark the
-   consumed ranges instead — same effect, no string surgery. */
+   consumed ranges instead — same effect, no string surgery. Inline math (`$…$`, new here)
+   ranks right after code, so nothing inside a formula reads as emphasis or a link. */
 
 export type Mark = { from: number; to: number; cls: string };
 
@@ -48,6 +49,11 @@ const RULES: Rule[] = [
       { from: at + m[0].length - 1, to: at + m[0].length, cls: 'tok' },
     ],
   },
+  // $$tex$$ / $tex$ — inline math, shown as coloured source (a `$$` line of its own is a
+  // math block, see below). The single form follows pandoc: no blank just inside the
+  // dollars and no digit right after the closing one, so "$5 and $10" is not math.
+  { re: /(?<![\\$])\$\$(?!\s)((?:\\.|[^$\\])+?)\$\$/g, marks: (m, at) => mathMarks(m, at, 2) },
+  { re: /(?<![\\$])\$(?![\s$])((?:\\.|[^$\\])+?)(?<!\s)\$(?![\d$])/g, marks: (m, at) => mathMarks(m, at, 1) },
   {
     // [text](url) — the url may hold one level of parentheses, as Wikipedia's do: (Foo_(bar))
     re: /\[([^\]]*)\]\(((?:[^()]|\([^()]*\))+)\)/g,
@@ -77,6 +83,25 @@ function emphasis(m: RegExpExecArray, at: number, n: number, cls: string[]): Mar
     { from: at, to: at + n, cls: 'tok' },
     { from: end - n, to: end, cls: 'tok' },
   ];
+}
+
+function mathMarks(m: RegExpExecArray, at: number, n: number): Mark[] {
+  const end = at + m[0].length;
+  return [
+    { from: at, to: end, cls: 'math' },
+    { from: at, to: at + n, cls: 'tok' },
+    ...texMarks(m[1], at + n),
+    { from: end - n, to: end, cls: 'tok' },
+  ];
+}
+
+/** TeX source dressing: commands (`\sum`, `\{`) and the structural symbols (`{ } _ ^ &`). */
+export function texMarks(tex: string, base = 0): Mark[] {
+  const out: Mark[] = [];
+  const re = /\\(?:[A-Za-z]+|.)|[{}_^&]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(tex))) out.push({ from: base + m.index, to: base + m.index + m[0].length, cls: m[0][0] === '\\' ? 'mcmd' : 'msym' });
+  return out;
 }
 
 /** Inline marks for a fragment of a line. `base` is the fragment's offset in the line. */
@@ -285,6 +310,64 @@ export function codeLineDeco(text: string, part: Exclude<FencePart, null>): Line
   return { lineClass: cls, marks };
 }
 
+/* ---------- math blocks ----------
+   A `$$` alone on its line opens a block and the next such line closes it; a line that is
+   `$$tex$$` and nothing else is a one-line block. An opening `$$` that is never closed is
+   just text. Away from the caret the block shows rendered (KaTeX, editor/math.ts); with the
+   caret in it, every line is source. Code blocks win: `$$` inside one is code. */
+
+const RE_MATH_FENCE = /^ {0,3}\$\$[ \t]*$/;
+const RE_MATH_ONE = /^ {0,3}\$\$(.*[^\s$].*?)\$\$[ \t]*$/;
+
+export type MathRange = { from: number; to: number; tex: string };
+
+/** Lines (1-based, inclusive) of every math block, with the TeX inside it. */
+export function mathRanges(line: (n: number) => string, lines: number): MathRange[] {
+  const code = new Uint8Array(lines + 2);
+  for (const r of fenceRanges(line, lines)) code.fill(1, r.from, r.to + 1);
+  const out: MathRange[] = [];
+  for (let n = 1; n <= lines; n++) {
+    if (code[n]) continue;
+    const text = line(n);
+    const one = RE_MATH_ONE.exec(text);
+    if (one) {
+      out.push({ from: n, to: n, tex: one[1].trim() });
+      continue;
+    }
+    if (!RE_MATH_FENCE.test(text)) continue;
+    let z = n + 1;
+    while (z <= lines && !code[z] && !RE_MATH_FENCE.test(line(z))) z++;
+    if (z > lines || code[z]) continue;
+    const body: string[] = [];
+    for (let k = n + 1; k < z; k++) body.push(line(k));
+    out.push({ from: n, to: z, tex: body.join('\n') });
+    n = z;
+  }
+  return out;
+}
+
+/** Per line (0-based): the math block it belongs to, if any. */
+export function mathScan(lines: string[]): (MathRange | null)[] {
+  const out: (MathRange | null)[] = lines.map(() => null);
+  for (const r of mathRanges((n) => lines[n - 1], lines.length)) out.fill(r, r.from - 1, r.to);
+  return out;
+}
+
+/** A line of a math block shown as source: the `$$` are markup, the TeX is dressed. */
+export function mathLineDeco(text: string, r: MathRange, n: number): LineDeco {
+  const cls = 'mb' + (n === r.from ? ' mbopen' : '') + (n === r.to ? ' mbclose' : '');
+  if (r.from === r.to) {
+    const a = text.indexOf('$$') + 2;
+    const z = text.lastIndexOf('$$');
+    return {
+      lineClass: cls,
+      marks: [{ from: 0, to: a, cls: 'tok' }, ...texMarks(text.slice(a, z), a), { from: z, to: text.length, cls: 'tok' }],
+    };
+  }
+  if (n === r.from || n === r.to) return { lineClass: cls, marks: text ? [{ from: 0, to: text.length, cls: 'tok' }] : [] };
+  return { lineClass: cls, marks: texMarks(text) };
+}
+
 /* ---------- links ----------
    Away from the caret a link shows only its text: the `[` in front and the `](url)` behind
    are hidden (the editor replaces them; the minimap and the PDF hide them with CSS). */
@@ -362,9 +445,10 @@ function delimiter(text: string): Align[] | null {
 
 /** Lines (1-based, inclusive) of every table in the document. */
 export function tableRanges(line: (n: number) => string, lines: number): { from: number; to: number }[] {
-  // a table inside a code block is just code
+  // a table inside a code or math block is just code
   const code = new Uint8Array(lines + 2);
   for (const r of fenceRanges(line, lines)) code.fill(1, r.from, r.to + 1);
+  for (const r of mathRanges(line, lines)) code.fill(1, r.from, r.to + 1);
   const src = line;
   line = (n) => (code[n] ? '' : src(n));
   const out: { from: number; to: number }[] = [];
@@ -410,8 +494,9 @@ export function tableSourceDeco(text: string, delimiterRow: boolean): LineDeco {
 }
 
 /** A table as HTML, cells decorated like any text (with the markup hidden by CSS). Each cell
-    carries `data-off`: where its text starts, counted from the table's first character. */
-export function tableHTML(lines: string[]): string {
+    carries `data-off`: where its text starts, counted from the table's first character.
+    `math` typesets inline math in the cells (see lineHTML). */
+export function tableHTML(lines: string[], math?: (tex: string) => string | null): string {
   const t = parseTable(lines);
   const starts: number[] = [];
   let off = 0;
@@ -422,7 +507,7 @@ export function tableHTML(lines: string[]): string {
   const cell = (tag: string, c: Cell, k: number, lineIdx: number) => {
     const align = t.align[k] ? ` style="text-align:${t.align[k]}"` : '';
     const at = c.at >= 0 ? starts[lineIdx] + c.at : starts[lineIdx] + lines[lineIdx].length;
-    return `<${tag} data-off="${at}"${align}>${c.text ? lineHTML(c.text) : ''}</${tag}>`;
+    return `<${tag} data-off="${at}"${align}>${c.text ? lineHTML(c.text, undefined, math) : ''}</${tag}>`;
   };
   const headRow = `<tr>${t.head.map((c, k) => cell('th', c, k, 0)).join('')}</tr>`;
   const body = t.rows.map((r, i) => `<tr>${r.map((c, k) => cell('td', c, k, i + 2)).join('')}</tr>`).join('');
@@ -479,10 +564,22 @@ export const isQuoteReset = (src: string) => src.trim() === '';
 
 const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-/** Render one decorated line to HTML. Nested marks are emitted as nested spans. */
-export function lineHTML(text: string, deco = decorateLine(text)): string {
+/** Render one decorated line to HTML. Nested marks are emitted as nested spans. With `math`,
+    inline math is shown rendered by it (the PDF) instead of as source. */
+export function lineHTML(text: string, deco = decorateLine(text), math?: (tex: string) => string | null): string {
   if (!text) return '<br>';
-  const marks = [...deco.marks].sort((a, b) => a.from - b.from || b.to - a.to);
+  let marks = [...deco.marks].sort((a, b) => a.from - b.from || b.to - a.to);
+  const shown = new Map<Mark, string>();
+  if (math) {
+    for (const m of marks) {
+      if (m.cls !== 'math') continue;
+      const n = text.startsWith('$$', m.from) ? 2 : 1;
+      const html = math(text.slice(m.from + n, m.to - n));
+      if (html != null) shown.set(m, html);
+    }
+    const inside = [...shown.keys()];
+    marks = marks.filter((m) => shown.has(m) || !inside.some((r) => m.from >= r.from && m.to <= r.to));
+  }
   let out = '';
   let pos = 0;
   const stack: { to: number }[] = [];
@@ -498,6 +595,12 @@ export function lineHTML(text: string, deco = decorateLine(text)): string {
     closeTo(m.from);
     out += esc(text.slice(pos, m.from));
     pos = m.from;
+    const html = shown.get(m);
+    if (html != null) {
+      out += `<span class="mathr">${html}</span>`;
+      pos = m.to;
+      continue;
+    }
     out += `<span class="${m.cls}">`;
     stack.push({ to: m.to });
   }

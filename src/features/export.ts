@@ -18,7 +18,8 @@
 import type { Platform } from '../platform/types';
 import { highlightBlock, loadLanguages } from '../editor/highlight';
 import { basename } from '../platform/paths';
-import { codeLineDeco, decorateLine, fenceScan, imageLine, lineHTML, listScan, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
+import { codeLineDeco, decorateLine, fenceScan, imageLine, lineHTML, listScan, mathLineDeco, mathScan, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
+import { loadMath, renderMath } from '../editor/math';
 
 /** A4 height at 96 CSS px per inch (the width, 210mm, lives in style.css). */
 export const PAGE_H = 1122.5;
@@ -69,16 +70,31 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
   // a table is one row, rendered; a page may still end between two of its rows (lineGaps)
   const tables = tableRanges((n) => lines[n - 1], lines.length);
   const code = fenceScan(lines);
+  const maths = mathScan(lines);
+  // inline math prints typeset, as the editor shows it away from the caret
+  const inline = (tex: string) => renderMath(tex, false);
   let colours: { at: number; marks: ReturnType<typeof highlightBlock> } = { at: 0, marks: null };
   let t = 0;
   lines.forEach((line, i) => {
     const table = tables[t];
     if (table && i + 1 >= table.from) {
       if (i + 1 === table.from) {
-        const html = tableHTML(lines.slice(table.from - 1, table.to));
+        const html = tableHTML(lines.slice(table.from - 1, table.to), inline);
         rows.push({ html, cls: 'ln tblrow', style: '', heading: false, blank: false, text: true, line: i + 1 });
       }
       if (i + 1 === table.to) t++;
+      return;
+    }
+    const math = maths[i];
+    if (math) {
+      // a math block is one row, typeset; it is never split across pages
+      const html = renderMath(math.tex, true);
+      if (html == null) {
+        const deco = mathLineDeco(line, math, i + 1);
+        rows.push({ html: lineHTML(line, deco), cls: 'ln ' + deco.lineClass, style: '', heading: false, blank: false, text: true, line: i + 1 });
+      } else if (i + 1 === math.from) {
+        rows.push({ html, cls: 'ln mathrow', style: '', heading: false, blank: false, text: false, line: i + 1 });
+      }
       return;
     }
     const part = code[i];
@@ -110,7 +126,7 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
       const miss = `<span class="imgmiss"${url ? ' style="display:none"' : ''}>⚠ ${img.src ? '图片未找到 · ' + escapeAttr(img.src) : '空图片链接'}</span>`;
       html = `<span class="imgwrap">${url ? `<img src="${escapeAttr(url)}" alt="${escapeAttr(img.alt)}">` : ''}${miss}</span>`;
     } else {
-      html = lineHTML(line, deco);
+      html = lineHTML(line, deco, inline);
     }
     rows.push({
       html,
@@ -229,6 +245,7 @@ export async function preparePrint(text: string, resolveAsset: (src: string) => 
   const lines = text.split('\n');
   const parts = fenceScan(lines);
   await loadLanguages(lines.filter((_, i) => parts[i] === 'open'));
+  if (text.includes('$')) await loadMath();
   const rows = buildRows(text, resolveAsset);
   rows[0].html = ornament();
 

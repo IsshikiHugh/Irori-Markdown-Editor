@@ -7,9 +7,10 @@
       100k-word document cost the same as a short one;
    2. an image line the caret is NOT on is replaced by a block widget showing the
       picture, and so is a table the caret is not in (all its lines, by a rendered
-      table). Where the caret is, the text always shows source — that invariant is the
-      whole contract of this editor. Links follow the same rule inline: away from the
-      caret only their text shows.
+      table), and so is a math block (by the typeset formula). Where the caret is, the
+      text always shows source — that invariant is the whole contract of this editor.
+      Links and inline math follow the same rule inline: away from the caret a link
+      shows only its text and a formula shows typeset.
 
    The two live in different places on purpose: decorations that change the block
    layout (lines replaced by a picture or a table) may only come from a state field,
@@ -28,6 +29,8 @@ import {
   isQuoteReset,
   linkParts,
   listRows,
+  mathLineDeco,
+  mathRanges,
   quoteStep,
   QUOTE_START,
   tableHTML,
@@ -35,9 +38,10 @@ import {
   tableSourceDeco,
   withListRow,
 } from './tokens';
-import type { QuoteState } from './tokens';
+import type { MathRange, QuoteState } from './tokens';
 import { isOpenClick, openLink } from './links';
 import { highlightBlock, onLanguageLoaded } from './highlight';
+import { onMathLoaded, renderMath } from './math';
 
 /** How an image's relative `src` becomes something the webview can load. */
 export type AssetResolver = (src: string) => string | null;
@@ -142,17 +146,23 @@ class ImageWidget extends WidgetType {
 
 /* ---------- table widget ---------- */
 
+const inlineMath = (tex: string) => renderMath(tex, false);
+
 class TableWidget extends WidgetType {
-  constructor(readonly lines: string[]) {
+  constructor(
+    readonly lines: string[],
+    /** KaTeX has arrived — the cells' inline math shows typeset */
+    readonly ready: boolean,
+  ) {
     super();
   }
   override eq(other: TableWidget) {
-    return other.lines.join('\n') === this.lines.join('\n');
+    return other.lines.join('\n') === this.lines.join('\n') && other.ready === this.ready;
   }
   override toDOM(view: EditorView) {
     const row = document.createElement('div');
     row.className = 'ln tblrow';
-    row.innerHTML = tableHTML(this.lines);
+    row.innerHTML = tableHTML(this.lines, inlineMath);
     // a click goes into the source at the cell that was clicked, not just to the table's start
     row.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
@@ -176,6 +186,76 @@ class TableWidget extends WidgetType {
   }
 }
 
+/* ---------- math block widget ---------- */
+
+class MathWidget extends WidgetType {
+  constructor(
+    readonly tex: string,
+    /** where a click puts the caret: the start of the TeX, counted from the block's first character */
+    readonly at: number,
+    /** KaTeX has arrived — until then the block shows its TeX, dimmed */
+    readonly ready: boolean,
+  ) {
+    super();
+  }
+  override eq(other: MathWidget) {
+    return other.tex === this.tex && other.at === this.at && other.ready === this.ready;
+  }
+  override toDOM(view: EditorView) {
+    const row = document.createElement('div');
+    row.className = 'ln mathrow';
+    const html = renderMath(this.tex, true);
+    if (html != null) row.innerHTML = html;
+    else {
+      const wait = document.createElement('span');
+      wait.className = 'mathwait';
+      wait.textContent = this.tex;
+      row.appendChild(wait);
+    }
+    // a click goes into the source, at the TeX
+    row.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      view.dispatch({ selection: { anchor: view.posAtDOM(row) + this.at }, userEvent: 'select' });
+      view.focus();
+    });
+    return row;
+  }
+  override ignoreEvent(e: Event) {
+    return e.type === 'mousedown'; // handled above
+  }
+}
+
+/* ---------- inline math widget ---------- */
+
+class InlineMathWidget extends WidgetType {
+  constructor(
+    readonly html: string,
+    /** length of the opening delimiter: a click puts the caret just after it */
+    readonly open: number,
+  ) {
+    super();
+  }
+  override eq(other: InlineMathWidget) {
+    return other.html === this.html && other.open === this.open;
+  }
+  override toDOM(view: EditorView) {
+    const span = document.createElement('span');
+    span.className = 'mathr';
+    span.innerHTML = this.html;
+    span.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      view.dispatch({ selection: { anchor: view.posAtDOM(span) + this.open }, userEvent: 'select' });
+      view.focus();
+    });
+    return span;
+  }
+  override ignoreEvent(e: Event) {
+    return e.type === 'mousedown'; // handled above
+  }
+}
+
 /** Lines the caret (or a selection) touches: those always show source. */
 function caretLines(state: EditorState): Set<number> {
   const out = new Set<number>();
@@ -188,7 +268,7 @@ function caretLines(state: EditorState): Set<number> {
 }
 
 type Span = { from: number; to: number };
-type Blocks = { deco: DecorationSet; tables: Span[]; fences: (Span & { closed: boolean })[] };
+type Blocks = { deco: DecorationSet; tables: Span[]; fences: (Span & { closed: boolean })[]; maths: MathRange[] };
 
 function buildBlocks(state: EditorState): Blocks {
   const b = new RangeSetBuilder<Decoration>();
@@ -196,8 +276,10 @@ function buildBlocks(state: EditorState): Blocks {
   const doc = state.doc;
   const tables = tableRanges((n) => doc.line(n).text, doc.lines);
   const fences = fenceRanges((n) => doc.line(n).text, doc.lines);
+  const maths = mathRanges((n) => doc.line(n).text, doc.lines);
   let f = 0;
   let t = 0;
+  let k = 0;
   let n = 0;
   let st = QUOTE_START;
   for (const line of doc.iterLines()) {
@@ -211,15 +293,36 @@ function buildBlocks(state: EditorState): Blocks {
       if (!caretIn) {
         const lines: string[] = [];
         for (let k = table.from; k <= table.to; k++) lines.push(doc.line(k).text);
+        // a cell's formula asks for KaTeX; the table is redrawn once it is here
+        const ready = lines.some((l) => l.includes('$')) && renderMath('', false) != null;
         b.add(
           doc.line(table.from).from,
           doc.line(table.to).to,
-          Decoration.replace({ widget: new TableWidget(lines), block: true }),
+          Decoration.replace({ widget: new TableWidget(lines, ready), block: true }),
         );
       }
     }
     if (table && n === table.to) t++;
     if (table && n >= table.from && n <= table.to) continue;
+    const math = maths[k];
+    if (math && n >= math.from) {
+      if (n === math.from) {
+        let caretIn = false;
+        for (let j = math.from; j <= math.to; j++) caretIn ||= live.has(j);
+        if (!caretIn) {
+          const first = doc.line(math.from);
+          const at = math.from === math.to ? first.text.indexOf('$$') + 2 : first.length + 1;
+          const html = renderMath(math.tex, true);
+          b.add(
+            first.from,
+            doc.line(math.to).to,
+            Decoration.replace({ widget: new MathWidget(math.tex, at, html != null), block: true }),
+          );
+        }
+      }
+      if (n === math.to) k++;
+      continue;
+    }
     while (fences[f] && fences[f].to < n) f++;
     if (fences[f] && n >= fences[f].from) continue; // code: an image line in it is just code
     if (line.length < 5 || line.indexOf('![') < 0) continue; // cheap reject for the common case
@@ -232,12 +335,16 @@ function buildBlocks(state: EditorState): Blocks {
       Decoration.replace({ widget: new ImageWidget(line, img.quote, img.alt, img.src, hit.member), block: true }),
     );
   }
-  return { deco: b.finish(), tables, fences };
+  return { deco: b.finish(), tables, fences, maths };
 }
+
+/** KaTeX has arrived: typeset the math blocks that showed their TeX meanwhile */
+const mathLoaded = StateEffect.define<null>();
 
 const blockField = StateField.define<Blocks>({
   create: buildBlocks,
   update(blocks, tr) {
+    if (tr.effects.some((e) => e.is(mathLoaded))) return buildBlocks(tr.state);
     if (!tr.docChanged && !tr.selection) return blocks;
     if (tr.selection && !tr.docChanged) {
       // only matters when the caret moved to a different line
@@ -255,6 +362,11 @@ const blockField = StateField.define<Blocks>({
 /** Is line `n` inside a fenced code block (fences included)? */
 export function inCode(state: EditorState, n: number): boolean {
   return state.field(blockField).fences.some((r) => n >= r.from && n <= r.to);
+}
+
+/** The math block line `n` belongs to, if any. */
+export function inMath(state: EditorState, n: number): MathRange | null {
+  return state.field(blockField).maths.find((r) => n >= r.from && n <= r.to) ?? null;
 }
 
 /** Is line `n` part of a table? (Lines 1-based; also used by the arrow-key navigation.) */
@@ -284,7 +396,7 @@ function build(view: EditorView): DecorationSet {
   // the current-line highlight follows the caret itself (the head of the main range),
   // exactly like the blog editor's updateActiveLine()
   const anchorLine = doc.lineAt(state.selection.main.head).number;
-  const { tables, fences } = state.field(blockField);
+  const { tables, fences, maths } = state.field(blockField);
   const touches = (from: number, to: number) => state.selection.ranges.some((r) => r.from <= to && r.to >= from);
   // syntax colours, one parse per code block on screen
   const colours = new Map<Span, ReturnType<typeof highlightBlock>>();
@@ -329,6 +441,17 @@ function build(view: EditorView): DecorationSet {
             out.push(Decoration.mark({ class: m.cls }).range(line.from + m.from, line.from + m.to));
         continue;
       }
+      const math = maths.find((r) => lineNo >= r.from && lineNo <= r.to);
+      if (math) {
+        if (![...live].some((k) => k >= math.from && k <= math.to)) continue; // rendered by blockField
+        const deco = mathLineDeco(text, math, lineNo);
+        const cls = ['ln', deco.lineClass];
+        if (lineNo === anchorLine) cls.push('aline');
+        if (hovered === line.from) cls.push('mhover');
+        out.push(Decoration.line({ class: cls.join(' ') }).range(line.from));
+        for (const m of deco.marks) out.push(Decoration.mark({ class: m.cls }).range(line.from + m.from, line.from + m.to));
+        continue;
+      }
       const table = tables.find((t) => lineNo >= t.from && lineNo <= t.to);
       if (table && ![...live].some((k) => k >= table.from && k <= table.to)) continue; // rendered by blockField
       const img = table ? null : imageLine(text);
@@ -346,8 +469,19 @@ function build(view: EditorView): DecorationSet {
       out.push(Decoration.line({ class: cls.join(' '), attributes: style ? { style } : undefined }).range(line.from));
 
       if (asImage) continue; // the picture (a block decoration) comes from blockField
+      // a formula the caret is not on shows typeset (as source until KaTeX has arrived)
+      const typeset: Span[] = [];
+      for (const m of deco.marks) {
+        if (m.cls !== 'math' || touches(line.from + m.from, line.from + m.to)) continue;
+        const open = text.startsWith('$$', m.from) ? 2 : 1;
+        const html = renderMath(text.slice(m.from + open, m.to - open), false);
+        if (html == null) continue;
+        typeset.push(m);
+        out.push(Decoration.replace({ widget: new InlineMathWidget(html, open) }).range(line.from + m.from, line.from + m.to));
+      }
       for (const m of deco.marks) {
         if (m.to <= m.from) continue;
+        if (typeset.some((r) => m.from >= r.from && m.to <= r.to)) continue;
         out.push(Decoration.mark({ class: m.cls }).range(line.from + m.from, line.from + m.to));
       }
       // a link the caret is not on shows only its text
@@ -372,13 +506,16 @@ export const sourceDecoration: Extension = [
   ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
-      off: () => void;
+      offs: (() => void)[];
       constructor(view: EditorView) {
         this.decorations = build(view);
-        this.off = onLanguageLoaded(() => view.dispatch({ effects: languageLoaded.of(null) }));
+        this.offs = [
+          onLanguageLoaded(() => view.dispatch({ effects: languageLoaded.of(null) })),
+          onMathLoaded(() => view.dispatch({ effects: mathLoaded.of(null) })),
+        ];
       }
       destroy() {
-        this.off();
+        for (const off of this.offs) off();
       }
       update(u: ViewUpdate) {
         if (u.docChanged || u.viewportChanged || u.selectionSet || u.transactions.some((t) => t.effects.length))

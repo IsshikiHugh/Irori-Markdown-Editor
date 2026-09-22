@@ -10,6 +10,7 @@
    used to be this. */
 import type { EditorView } from '@codemirror/view';
 import { loadLanguages } from '../editor/highlight';
+import { loadMath } from '../editor/math';
 import type { Platform } from '../platform/types';
 import type { DocumentSession } from '../app/document';
 import type { SettingsStore } from '../app/settings';
@@ -35,6 +36,12 @@ export async function runSmoke(ctx: SmokeCtx): Promise<void> {
 const smoke = await ctx.platform.smokeOut();
 let focusKeepsScroll: boolean | null = null;
 if (smoke) {
+  // the code block's language and KaTeX are chunks of their own, loaded on first use: wait for
+  // them, then for the editor to draw with them — a math block typeset mid-probe would change the
+  // heights above the probe line
+  await loadLanguages(['```ts']);
+  await loadMath();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   // Verify on the real host something Chromium can't reproduce: WebKit scrolls the caret into
   // view when it refocuses a contenteditable (seen as "one click in the drawer yanks the text back
   // to the caret"). This measures whether that is actually guarded against.
@@ -45,12 +52,12 @@ if (smoke) {
     // Put the caret somewhere visible at the probe position: otherwise, with focus mode on,
     // "bring the caret back into the focus band" would itself change the scroll position, and the
     // probe could no longer measure what it is really meant to. And on a line of plain text: on a
-    // picture, a table or a link the caret turns it back into source, which changes the heights
-    // above — a moved scroll position the probe would blame on the refocus.
+    // picture, a table, a link or a formula the caret turns it back into source, which changes the
+    // heights above — a moved scroll position the probe would blame on the refocus.
     const doc = ctx.view.state.doc;
     const mid = ctx.view.posAtCoords({ x: ctx.view.contentDOM.getBoundingClientRect().left + 20, y: el.getBoundingClientRect().top + el.clientHeight / 2 }, false);
     let n = doc.lineAt(mid ?? 0).number;
-    while (n < doc.lines && /[[|]/.test(doc.line(n).text)) n++;
+    while (n < doc.lines && /[[|$]/.test(doc.line(n).text)) n++;
     ctx.view.dispatch({ selection: { anchor: doc.line(n).from } });
     ctx.view.contentDOM.blur();
     await new Promise((r) => setTimeout(r, 80));
@@ -86,10 +93,6 @@ if (smoke?.pdf) {
   await ctx.platform.writeText(smoke.out + '.pdfinfo', JSON.stringify(pdf));
 }
 if (smoke) {
-  // the code block's language is a chunk of its own, loaded on first use: wait for it, then for
-  // the editor to draw the colours
-  await loadLanguages(['```ts']);
-  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   await ctx.platform.writeText(
     smoke.out,
     JSON.stringify({
@@ -107,6 +110,7 @@ if (smoke) {
         image: !!document.querySelector('.cm-content .imgrow'),
         table: !!document.querySelector('.cm-content .mdtbl'),
         code: !!document.querySelector('.cm-content .cb .tok-keyword'),
+        math: !!document.querySelector('.cm-content .mathrow .katex'),
       },
       // right edge of the dot of "9." minus that of "10." — 0 when numbers right-align in WebKit too
       listDots: (() => {

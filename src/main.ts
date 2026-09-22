@@ -9,6 +9,7 @@ import { DocumentSession } from './app/document';
 import { storeImage, UnsavedDocumentError } from './app/images';
 import { applyFont, createEditor, setLocked } from './editor';
 import { onLanguageLoaded } from './editor/highlight';
+import { mathReady, onMathLoaded } from './editor/math';
 import { createTOC } from './features/toc';
 import { createMinimap } from './features/minimap';
 import type { Minimap } from './features/minimap';
@@ -213,6 +214,10 @@ async function boot() {
   minimapRef = minimap;
   // a code block's language arrived after the minimap drew it plain
   onLanguageLoaded(() => minimap.invalidate());
+  // so did KaTeX, for its math blocks
+  onMathLoaded(() => minimap.invalidate());
+  // and a font (KaTeX's rarer faces load on first use) changes the size of what it drew
+  document.fonts?.addEventListener('loadingdone', () => minimap.invalidate());
 
   const focus = createFocus(
     view,
@@ -381,6 +386,7 @@ async function boot() {
   if (startup) {
     try {
       const text = await doc.open(startup);
+      await mathReady(text);
       setBuffer(text);
     } catch (err) {
       toast('打开失败：' + (err as Error).message);

@@ -164,6 +164,21 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .tok-link,.tok-url{color:var(--link);}
 .tok-invalid{color:#b3452e;}
 
+/* ---- math (tokens.ts: $…$ and $$ blocks; editor/math.ts typesets) ----
+   Under the caret a formula is source: the TeX in a muted violet, commands picked out, the
+   dollars and braces dimmed like any markup. Away from it, it is typeset — a block centred on
+   its own row, inline math in the text; clicking either goes back to the source. */
+.math{color:#6f5d86;}
+.mcmd{color:#3f6d86;} .msym{color:var(--tok);}
+.ln.mb,.cm-editor .cm-line.ln.mb{font-family:ui-monospace,Menlo,monospace;font-size:15px;line-height:1.8;color:#6f5d86;}
+.ln.mb.mbopen{padding-top:4px;} .ln.mb.mbclose{padding-bottom:4px;}
+.mathrow{cursor:text;white-space:normal;padding:4px 0;overflow-x:auto;overflow-y:hidden;color:var(--ink);}
+.mathrow .katex-display{margin:6px 0;}
+.mathrow .katex{font-size:1.12em;}
+.mathwait{display:block;text-align:center;font-family:ui-monospace,Menlo,monospace;font-size:15px;color:var(--tok);white-space:pre-wrap;}
+.mathr{cursor:text;} .mathr .katex{font-size:1.05em;}
+.katex .katex-error,span.katex-error{color:#b3452e!important;}
+
 /* ---- tables: rendered away from the caret (editor/decorations.ts), source with it ----
    The rendered table is a reading view: its cells hide the markdown markup, links show only
    their text. The minimap and the PDF hide link markup everywhere (the editor replaces it). */

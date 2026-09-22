@@ -7,9 +7,13 @@
    same cost as a short one while staying pixel-aligned with the real text. */
 
 import type { EditorView } from '@codemirror/view';
-import { codeLineDeco, decorateLine, fenceRanges, imageLine, lineHTML, listRows, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
+import { codeLineDeco, decorateLine, fenceRanges, imageLine, lineHTML, listRows, mathLineDeco, mathRanges, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
 import type { Glide } from './glide';
 import { highlightBlock } from '../editor/highlight';
+import { renderMath } from '../editor/math';
+
+/** inline math shows typeset here, as it does in the editor away from the caret */
+const inlineMath = (tex: string) => renderMath(tex, false);
 
 const PAD = 10;
 /** hard ceiling on cloned rows, so a pathological viewport can never explode the DOM */
@@ -108,6 +112,7 @@ export function createMinimap(
     const tables = tableRanges((n) => doc.line(n).text, doc.lines).filter((t) => t.to >= fromLine && t.from <= toLine);
     const fences = fenceRanges((n) => doc.line(n).text, doc.lines).filter((r) => r.to >= fromLine && r.from <= toLine);
     const colours = new Map<(typeof fences)[number], ReturnType<typeof highlightBlock>>();
+    const maths = mathRanges((n) => doc.line(n).text, doc.lines).filter((r) => r.to >= fromLine && r.from <= toLine);
 
     const parts: string[] = [];
     let rows = 0;
@@ -117,12 +122,27 @@ export function createMinimap(
         const lines: string[] = [];
         for (let k = table.from; k <= table.to; k++) lines.push(doc.line(k).text);
         const y = view.lineBlockAt(doc.line(table.from).from).top + padTop();
-        parts.push(`<div class="ln tblrow" style="top:${y.toFixed(2)}px">${tableHTML(lines)}</div>`);
+        parts.push(`<div class="ln tblrow" style="top:${y.toFixed(2)}px">${tableHTML(lines, inlineMath)}</div>`);
         n = table.to;
+        continue;
+      }
+      // a math block shows typeset, like a table — or as source until KaTeX has arrived
+      const math = maths.find((r) => n >= r.from && n <= r.to);
+      const typeset = math && renderMath(math.tex, true);
+      if (math && typeset != null) {
+        const y = view.lineBlockAt(doc.line(math.from).from).top + padTop();
+        parts.push(`<div class="ln mathrow" style="top:${y.toFixed(2)}px">${typeset}</div>`);
+        n = math.to;
         continue;
       }
       const line = doc.line(n);
       const text = line.text;
+      if (math) {
+        const deco = mathLineDeco(text, math, n);
+        const y = view.lineBlockAt(line.from).top + padTop();
+        parts.push(`<div class="ln ${deco.lineClass}" style="top:${y.toFixed(2)}px">${lineHTML(text, deco)}</div>`);
+        continue;
+      }
       const fence = fences.find((r) => n >= r.from && n <= r.to);
       if (fence) {
         const part = n === fence.from ? 'open' : fence.closed && n === fence.to ? 'close' : 'body';
@@ -155,7 +175,7 @@ export function createMinimap(
           : `<span class="imgwrap"><span class="imgmiss"></span></span>`;
         cls.push('imgrow');
       } else {
-        inner = lineHTML(text, deco);
+        inner = lineHTML(text, deco, inlineMath);
       }
       parts.push(`<div class="${cls.join(' ')}" style="top:${y.toFixed(2)}px;${style}">${inner}</div>`);
     }

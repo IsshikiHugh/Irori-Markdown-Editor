@@ -3,6 +3,7 @@
    editor's own keymap already handled arrive here as defaultPrevented, so they never fire twice. */
 import type { Platform } from '../platform/types';
 import type { DocumentSession } from './document';
+import { mathReady } from '../editor/math';
 
 export type ShortcutDeps = {
   platform: Platform;
@@ -56,6 +57,7 @@ addEventListener('keydown', (e) => {
     void (async () => {
       const p = await doc.openDialog();
       if (p) {
+        await mathReady(doc.text);
         setBuffer(doc.text);
         toast('已打开 ' + doc.name);
       }

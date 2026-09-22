@@ -1,6 +1,6 @@
 /* Source decoration: wherever the caret is, markers are visible and editable and every line's text is exactly its
    Markdown source; away from it, pictures, tables and links show rendered. */
-import { MOD, docText, lineClasses, setDoc, sleep } from '../harness.mjs';
+import { MOD, caret, caretToLine, docText, lineClasses, setCaret, setDoc, sleep } from '../harness.mjs';
 
 const SAMPLE = [
   '# 标题一',
@@ -634,6 +634,92 @@ export const cases = [
       );
       t.ok('markdown block is coloured', styles.length > 0, '');
       t.ok('but never bold or italic', styles.every(([, w, st]) => (w === '400' || w === 'normal') && st === 'normal'), JSON.stringify(styles));
+    },
+  },
+  {
+    id: 'B-98',
+    name: 'Math: a $$ block or an inline $…$ away from the caret is typeset (editor, minimap, PDF); a click or the caret turns it back into source',
+    async run(t, ctx) {
+      const md = ['开头 $E=mc^2$ 一行', '', '$$', '\\sum_{i=1}^n x_i^2', '$$', '', '结尾一行'].join('\n');
+      const page = await ctx.open({ files: { '/n/m.md': md }, startup: '/n/m.md' });
+      await sleep(1500); // KaTeX loads on first use
+      const shown = () =>
+        page.evaluate(() => ({
+          typeset: !!document.querySelector('.cm-content .mathrow .katex-display'),
+          src: document.querySelectorAll('.cm-content .cm-line.mb').length,
+        }));
+      await caretToLine(page, 7);
+      await sleep(100);
+      let s = await shown();
+      t.ok('typeset away from the caret', s.typeset && s.src === 0, JSON.stringify(s));
+      t.eq('the document is untouched', await docText(page), md);
+      const inline = () =>
+        page.evaluate(() => {
+          const line = document.querySelector('.cm-content .cm-line');
+          return {
+            typeset: line.querySelectorAll('.mathr .katex').length,
+            math: [...line.querySelectorAll('.math')].map((e) => e.textContent),
+            dollar: [...line.querySelectorAll('.math > .tok')].map((e) => getComputedStyle(e).color),
+          };
+        });
+      t.eq('inline math away from the caret is typeset', (await inline()).typeset, 1);
+      // the caret elsewhere on the same line leaves it typeset
+      await setCaret(page, 1);
+      await sleep(100);
+      t.eq('the caret on the line but not the formula: still typeset', (await inline()).typeset, 1);
+      const spot = await page.evaluate(() => {
+        const r = document.querySelector('.cm-content .mathr').getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      await page.mouse.click(spot.x, spot.y);
+      await sleep(100);
+      t.eq('a click puts the caret just inside the $', await caret(page), 4);
+      const src = await inline();
+      t.eq('and shows it as source', [src.typeset, src.math], [0, ['$E=mc^2$']]);
+      t.ok('its dollars are markup-coloured', src.dollar.length === 2 && src.dollar.every((c) => c === 'rgb(195, 183, 164)'), JSON.stringify(src.dollar));
+
+      const at = await page.evaluate(() => {
+        const r = document.querySelector('.cm-content .mathrow').getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      });
+      await page.mouse.click(at.x, at.y);
+      await sleep(150);
+      s = await shown();
+      t.ok('a click shows the source', !s.typeset && s.src === 3, JSON.stringify(s));
+      const where = await page.evaluate(() => {
+        const v = window.__irori.view;
+        const head = v.state.selection.main.head;
+        return { line: v.state.doc.lineAt(head).number, col: head - v.state.doc.lineAt(head).from };
+      });
+      t.eq('caret at the start of the TeX', where, { line: 4, col: 0 });
+      const cmd = await page.evaluate(() => [...document.querySelectorAll('.cm-line.mb .mcmd')].map((e) => e.textContent));
+      t.eq('commands picked out', cmd, ['\\sum']);
+
+      await caretToLine(page, 2);
+      await sleep(100);
+      t.ok('caret gone: typeset again', (await shown()).typeset, '');
+      await page.keyboard.press('ArrowDown');
+      await sleep(100);
+      t.eq('ArrowDown steps onto the opening $$', await page.evaluate(() => {
+        const v = window.__irori.view;
+        return v.state.doc.lineAt(v.state.selection.main.head).number;
+      }), 3);
+      t.ok('and it shows source', !(await shown()).typeset, '');
+
+      await caretToLine(page, 7);
+      await sleep(200);
+      t.ok('minimap typeset', await page.evaluate(() => !!document.querySelector('#miniContent .mathrow .katex')), '');
+      const printed = await page.evaluate(async () => {
+        await window.__irori.preparePrint();
+        const r = {
+          block: document.querySelectorAll('#print .mathrow .katex-display').length,
+          inline: document.querySelectorAll('#print .mathr .katex').length,
+        };
+        window.__irori.clearPrint();
+        return r;
+      });
+      t.eq('PDF: block and inline typeset', printed, { block: 1, inline: 1 });
+      t.eq('minimap: inline typeset', await page.evaluate(() => document.querySelectorAll('#miniContent .mathr .katex').length), 1);
     },
   },
 ];
