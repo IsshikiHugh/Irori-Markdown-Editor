@@ -16,6 +16,9 @@ export type Settings = {
   focus: { on: boolean; top: number; bottom: number; curve: { x: number; y: number }[] };
   /** typewriter mode: whether the caret's row is pinned, and at what height (percent) */
   typewriter: { on: boolean; anchor: number };
+  /** where pasted images go: a folder relative to the document's (or absolute); `{name}` is
+      the document's name without its extension (paths.ts: imageDir) */
+  imageDir: string;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -33,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
     ],
   },
   typewriter: { on: false, anchor: 45 },
+  imageDir: '{name}',
 };
 
 export type Stat = { mtimeMs: number; size: number } | null;
@@ -69,7 +73,8 @@ export interface Platform {
 
   readText(path: string): Promise<string>;
   writeText(path: string, content: string): Promise<void>;
-  writeBinary(path: string, data: Uint8Array): Promise<void>;
+  /** Write a new file, never replacing one: false when the name is already taken. */
+  createBinary(path: string, data: Uint8Array): Promise<boolean>;
   mkdirp(path: string): Promise<void>;
   stat(path: string): Promise<Stat>;
   listDir(path: string): Promise<string[]>;

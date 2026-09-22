@@ -249,6 +249,56 @@ export const cases = [
     },
   },
   {
+    id: 'B-99',
+    name: 'the image folder is a setting: a relative template with {name}, or the document\'s own folder; it survives a restart',
+    async run(t, ctx) {
+      // already in the target folder, differing only in case: must not be overwritten
+      const page = await ctx.open({ files: { '/n/sub/笔记.md': '开头' }, images: { '/n/sub/img/SHOT.png': 'AAEC' }, startup: '/n/sub/笔记.md' });
+      t.eq('default shown in the drawer', await page.$eval('#imgdirin', (e) => e.value), '{name}');
+      const paste = () =>
+        page.evaluate(() => {
+          const file = new File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' });
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          document.querySelector('.cm-content').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        });
+      const setDir = (v) =>
+        page.evaluate((x) => {
+          const el = document.getElementById('imgdirin');
+          el.value = x;
+          el.dispatchEvent(new Event('change'));
+        }, v);
+      const wrote = () => page.evaluate(() => [...window.__irori.platform.files.keys()]);
+      await page.click('.cm-content');
+      await page.keyboard.press('End');
+
+      await setDir('../assets/{name}');
+      await paste();
+      await sleep(300);
+      t.ok('path relative to the document', (await docText(page)).includes('![](../assets/笔记/shot.png)'), await docText(page));
+      t.ok('written into that folder', (await wrote()).includes('/n/assets/笔记/shot.png'), JSON.stringify(await wrote()));
+
+      await setDir('.');
+      await paste();
+      await sleep(300);
+      t.ok('"." is the document\'s own folder', (await docText(page)).includes('![](shot.png)'), await docText(page));
+      t.ok('written beside the document', (await wrote()).includes('/n/sub/shot.png'), '');
+
+      await setDir('   ');
+      t.eq('blank falls back to the default', await page.$eval('#imgdirin', (e) => e.value), '{name}');
+      await setDir('img');
+      await paste();
+      await sleep(300);
+      t.ok('a name taken in another case gets a suffix', (await docText(page)).includes('![](img/shot-1.png)'), await docText(page));
+      const kept = await page.evaluate(() => [...window.__irori.platform.files.get('/n/sub/img/SHOT.png').bytes]);
+      t.eq('the existing file is untouched', kept, [0, 1, 2]);
+      await sleep(400); // settings are written after a short pause
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForFunction(() => window.__irori && window.__irori.view);
+      t.eq('kept across a restart', await page.$eval('#imgdirin', (e) => e.value), 'img');
+    },
+  },
+  {
     id: 'B-50',
     name: 'pasting an image into a blank page is refused with a prompt to save first',
     async run(t, ctx) {

@@ -39,8 +39,8 @@ export class TauriPlatform implements Platform {
   writeText(path: string, content: string) {
     return invoke<void>('write_text', { path, content });
   }
-  writeBinary(path: string, data: Uint8Array) {
-    return invoke<void>('write_binary', { path, data: Array.from(data) });
+  createBinary(path: string, data: Uint8Array) {
+    return invoke<boolean>('create_binary', { path, data: Array.from(data) });
   }
   mkdirp(path: string) {
     return invoke<void>('mkdirp', { path });

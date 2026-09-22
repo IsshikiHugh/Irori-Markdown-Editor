@@ -70,10 +70,14 @@ export class WebPlatform implements Platform {
   async writeText(path: string, content: string) {
     this.touch(path, { text: content, mtimeMs: Date.now() });
   }
-  async writeBinary(path: string, data: Uint8Array) {
+  async createBinary(path: string, data: Uint8Array) {
+    // taken, whatever the case — like the case-insensitive volumes of macOS and Windows
+    const p = normalize(path).toLowerCase();
+    if ([...this.files.keys()].some((k) => k.toLowerCase() === p)) return false;
     this.touch(path, { bytes: data, mtimeMs: Date.now() });
     const blob = new Blob([data as unknown as BlobPart]);
     this.urls.set(normalize(path), URL.createObjectURL(blob));
+    return true;
   }
   async mkdirp(path: string) {
     this.touch(path, { dir: true });

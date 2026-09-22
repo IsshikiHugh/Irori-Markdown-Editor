@@ -6,6 +6,7 @@
 //! not touch the editor.
 
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -168,12 +169,27 @@ fn write_text(path: String, content: String) -> Res<()> {
     fs::write(&path, content).map_err(err)
 }
 
+/// Write a NEW file; never replaces one. `false` when the name is taken. The check is the file
+/// system's own (O_EXCL), made in the same step as the create, so neither a case-insensitive
+/// volume ("Shot.png" vs "shot.png") nor a file that appeared a moment ago can be overwritten.
 #[tauri::command]
-fn write_binary(path: String, data: Vec<u8>) -> Res<()> {
-    if let Some(dir) = Path::new(&path).parent() {
-        fs::create_dir_all(dir).map_err(err)?;
+fn create_binary(path: String, data: Vec<u8>) -> Res<bool> {
+    let mut file = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+        Err(e) => return Err(err(e)),
+    };
+    if let Err(e) = file.write_all(&data) {
+        // the file is ours (we just created it): do not leave half an image behind
+        drop(file);
+        let _ = fs::remove_file(&path);
+        return Err(err(e));
     }
-    fs::write(&path, data).map_err(err)
+    Ok(true)
 }
 
 #[tauri::command]
@@ -302,7 +318,7 @@ pub fn run() {
             update::restart_ready,
             read_text,
             write_text,
-            write_binary,
+            create_binary,
             mkdirp,
             stat_path,
             list_dir,

@@ -2,7 +2,7 @@
 
 import { EditorView } from '@codemirror/view';
 import { getPlatform } from './platform';
-import { resolveAgainst } from './platform/paths';
+import { DEFAULT_IMAGE_DIR, resolveAgainst } from './platform/paths';
 import type { Platform } from './platform/types';
 import { SettingsStore } from './app/settings';
 import { DocumentSession } from './app/document';
@@ -156,12 +156,12 @@ async function boot() {
     onImage(file) {
       void (async () => {
         try {
-          const ref = await storeImage(platform, doc.path, file);
+          const ref = await storeImage(platform, doc.path, file, settings.value.imageDir);
           const at = view.state.selection.main;
           const line = view.state.doc.lineAt(at.head);
           const insert = (line.text.trim() ? '\n' : '') + `![](${ref})` + '\n';
           view.dispatch({ changes: { from: at.to, insert }, selection: { anchor: at.to + insert.length } });
-          toast('图片已保存到 ' + doc.stemName + '/');
+          toast('图片已保存到 ' + (ref.includes('/') ? ref.slice(0, ref.lastIndexOf('/') + 1) : '文档所在文件夹'));
         } catch (err) {
           toast(err instanceof UnsavedDocumentError ? err.message : '图片保存失败：' + (err as Error).message);
         }
@@ -345,6 +345,7 @@ async function boot() {
   const aseg = $('aseg');
   const aint = $<HTMLInputElement>('aint');
   const fontin = $<HTMLInputElement>('fontin');
+  const imgdirin = $<HTMLInputElement>('imgdirin');
   function reflectSettings() {
     [...aseg.children].forEach((x) =>
       x.classList.toggle('on', ((x as HTMLElement).dataset.on === '1') === settings.value.autosave),
@@ -352,6 +353,7 @@ async function boot() {
     aint.value = String(settings.value.autosaveDelay);
     aint.disabled = !settings.value.autosave;
     fontin.value = settings.value.fontFamily;
+    imgdirin.value = settings.value.imageDir;
   }
   aseg.onclick = () => {
     settings.patch({ autosave: !settings.value.autosave });
@@ -368,6 +370,10 @@ async function boot() {
     minimap.layout();
     // line heights just changed under the caret
     requestAnimationFrame(() => typewriter.follow());
+  };
+  imgdirin.onchange = () => {
+    settings.patch({ imageDir: imgdirin.value.trim() || DEFAULT_IMAGE_DIR });
+    reflectSettings();
   };
   reflectSettings();
 

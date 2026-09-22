@@ -1,5 +1,6 @@
 /* Settings live in one file next to the app, never next to the document. v1 holds
-   exactly what was decided: autosave on/off + interval, the writing font, and the view
+   exactly what was decided: autosave on/off + interval, the writing font, where pasted
+   images go, and the view
    preferences (focus mode, typewriter mode) the blog editor used to keep in localStorage. */
 
 import { DEFAULT_SETTINGS } from '../platform/types';
