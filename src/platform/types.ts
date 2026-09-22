@@ -14,6 +14,8 @@ export type Settings = {
   fontFamily: string;
   /** focus mode preferences (kept here so one file holds all persisted state) */
   focus: { on: boolean; top: number; bottom: number; curve: { x: number; y: number }[] };
+  /** typewriter mode: whether the caret's row is pinned, and at what height (percent) */
+  typewriter: { on: boolean; anchor: number };
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
       { x: 0.55, y: 0.99 },
     ],
   },
+  typewriter: { on: false, anchor: 45 },
 };
 
 export type Stat = { mtimeMs: number; size: number } | null;

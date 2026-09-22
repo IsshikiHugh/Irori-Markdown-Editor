@@ -245,6 +245,15 @@ body.menuopen .drawer{transform:translateX(0);}
 .fadjust{display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-size:12px;color:var(--sub);padding:8px 0 2px;user-select:none;} .fadjust:hover{color:var(--accent);}
 .fcaret{font-size:10px;color:#b0a696;transition:transform .18s ease;} #frange.open .fcaret{transform:rotate(90deg);color:var(--accent);}
 #fpanel{display:none;} #frange.open #fpanel{display:block;}
+/* typewriter mode: the anchor slider only matters while the mode is on */
+#trow{display:none;} body.typewriter #trow{display:flex;}
+/* The anchor hairline: shown for a moment while the slider is dragged, so the height being set is
+   visible on the page itself. Inside the editor, like the fade layer — below the caret (150). Two
+   hairlines tapering toward the middle, the same vocabulary as the head ornament: they bracket the
+   row that is being held instead of striking through its text. */
+.twguide{position:absolute;left:50%;width:660px;margin-left:-330px;height:1px;z-index:101;pointer-events:none;opacity:0;transition:opacity .2s;
+  background:linear-gradient(to right,rgba(162,123,92,0) 0,rgba(162,123,92,.55) 32%,rgba(162,123,92,0) 46.5%,rgba(162,123,92,0) 53.5%,rgba(162,123,92,.55) 68%,rgba(162,123,92,0) 100%);}
+.twguide.show{opacity:1;}
 .curve{width:100%;height:96px;display:block;margin-top:8px;border-radius:8px;touch-action:none;cursor:crosshair;}
 .curvebg{fill:#f3ede4;}
 .curveline{fill:none;stroke:var(--accent);stroke-width:2;}

@@ -1,6 +1,13 @@
 /* TOC, minimap, focus mode, word count, search. */
 import { MOD, caretToLine, setCaret, sleep } from '../harness.mjs';
 
+/** wait until nothing is gliding any more (a far jump takes up to 1.4s, plus a landing leg) */
+const settled = async (page) => {
+  await page.waitForFunction(() => window.__irori.glide.running(), { timeout: 600 }).catch(() => {});
+  await page.waitForFunction(() => !window.__irori.glide.running(), { timeout: 6000 });
+  await sleep(200);
+};
+
 const long = (n) => Array.from({ length: n }, (_, i) => (i % 12 === 0 ? `## 小节 ${i / 12 + 1}` : `第 ${i} 行的正文内容`)).join('\n');
 const DOC = ['# 大标题', '', '开头段落', '', long(120)].join('\n');
 
@@ -603,6 +610,247 @@ export const cases = [
       });
       t.ok('caret inside the band', inBand.ok, JSON.stringify(inBand));
       await setCaret(page, 0);
+    },
+  },
+  {
+    id: 'B-94',
+    name: 'Typewriter mode holds the caret row at the set height, while typing and after a jump',
+    async run(t, ctx) {
+      const page = await ctx.open({ files: { '/n/a.md': long(200) }, startup: '/n/a.md' });
+      await sleep(250);
+      await page.click('#hair');
+      await sleep(320);
+      await page.click('#tseg');
+      await settled(page);
+      const probe = () =>
+        page.evaluate(() => {
+          const v = window.__irori.view;
+          const c = v.coordsAtPos(v.state.selection.main.head);
+          const r = v.scrollDOM.getBoundingClientRect();
+          return {
+            caret: (c.top + c.bottom) / 2 - r.top,
+            anchor: window.__irori.typewriter.anchorY() - r.top,
+            scrollTop: v.scrollDOM.scrollTop,
+            pct: +document.getElementById('tposR').value,
+            height: r.height,
+          };
+        });
+      t.ok('the mode is on', await page.evaluate(() => document.body.classList.contains('typewriter')), '');
+      await caretToLine(page, 60);
+      await settled(page);
+      const jumped = await probe();
+      t.near('after a jump the caret row is on the anchor', jumped.caret, jumped.anchor, 2);
+      t.near('the anchor is the height the slider shows', jumped.anchor, (jumped.pct / 100) * jumped.height, 1);
+
+      // typing: the caret must not move down the screen, the text moves up instead
+      await page.evaluate(() => window.__irori.view.focus());
+      const rows = [];
+      let glided = 0;
+      for (let i = 0; i < 5; i++) {
+        await page.keyboard.type('新的一行');
+        await page.keyboard.press('Enter');
+        // the row rides back up on the shared glide, exactly like a one-line jump anywhere else
+        if (await page.waitForFunction(() => window.__irori.glide.running(), { timeout: 900 }).then(() => true, () => false)) glided++;
+        await settled(page);
+        rows.push((await probe()).caret);
+      }
+      t.eq('every new line is carried by the shared jump animation', glided, 5);
+      const spread = Math.max(...rows) - Math.min(...rows);
+      t.ok('the row stays put across five new lines', spread <= 2, rows.map((r) => r.toFixed(1)).join(' '));
+      t.near('still on the anchor', rows[rows.length - 1], jumped.anchor, 2);
+      const scrolledWhileTyping = (await probe()).scrollTop > jumped.scrollTop + 100;
+      t.ok('it is the paper that moved, not the caret', scrolledWhileTyping, '');
+
+      // scrolling by hand is free; the next keystroke brings the row back
+      await page.evaluate(() => (window.__irori.view.scrollDOM.scrollTop -= 400));
+      await sleep(120);
+      await page.keyboard.type('回');
+      await settled(page);
+
+      const back = await probe();
+      t.near('typing after a manual scroll snaps the row back', back.caret, back.anchor, 2);
+    },
+  },
+  {
+    id: 'B-95',
+    name: 'The typewriter height is adjustable, reaches the first and last line, and is remembered',
+    async run(t, ctx) {
+      const page = await ctx.open({ files: { '/n/a.md': long(60) }, startup: '/n/a.md' });
+      await sleep(250);
+      await page.click('#hair');
+      await sleep(320);
+      await page.click('#tseg');
+      await settled(page);
+      const setAnchor = async (v) => {
+        await page.evaluate((val) => {
+          const el = document.getElementById('tposR');
+          el.value = String(val);
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }, v);
+        await settled(page);
+      };
+      const at = (line) =>
+        page.evaluate((n) => {
+          const v = window.__irori.view;
+          const pos = n < 0 ? v.state.doc.length : v.state.doc.line(n).from;
+          const c = v.coordsAtPos(pos);
+          const r = v.scrollDOM.getBoundingClientRect();
+          return { caret: c ? (c.top + c.bottom) / 2 - r.top : null, anchor: window.__irori.typewriter.anchorY() - r.top };
+        }, line);
+
+      await setAnchor(25);
+      t.eq('the readout follows the slider', await page.evaluate(() => document.getElementById('tposv').textContent), '25%');
+      await caretToLine(page, 30);
+      await settled(page);
+      const mid = await at(30);
+      t.near('the caret row moved to the new height', mid.caret, mid.anchor, 2);
+
+      // the padding at both ends is what lets the very first and very last line reach the anchor
+      await caretToLine(page, 1);
+      await settled(page);
+      const first = await at(1);
+      t.near('the first line can reach the anchor', first.caret, first.anchor, 2);
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.length } });
+      });
+      await settled(page);
+      const last = await at(-1);
+      t.near('the last line can reach the anchor', last.caret, last.anchor, 2);
+
+      const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('irori.settings') || '{}').typewriter);
+      t.eq('the toggle is remembered', stored.on, true);
+      t.eq('the height is remembered', stored.anchor, 25);
+      await page.reload({ waitUntil: 'load' });
+      await page.waitForFunction(() => window.__irori && window.__irori.view);
+      await sleep(300);
+      const restored = await page.evaluate(() => ({
+        on: document.body.classList.contains('typewriter'),
+        v: document.getElementById('tposR').value,
+        seg: document.querySelector('#tseg i[data-on="1"]').className,
+      }));
+      t.eq('still on after a restart', restored.on, true);
+      t.eq('still at 25%', restored.v, '25');
+      t.ok('the drawer switch shows it', restored.seg.includes('on'), restored.seg);
+    },
+  },
+  {
+    id: 'B-96',
+    name: 'Off by default; with focus mode on as well the anchor stays inside the band',
+    async run(t, ctx) {
+      const page = await ctx.open({ files: { '/n/a.md': long(200) }, startup: '/n/a.md' });
+      await sleep(250);
+      t.ok('off unless asked for', !(await page.evaluate(() => document.body.classList.contains('typewriter'))), '');
+      const before = await page.evaluate(() => window.__irori.view.scrollDOM.scrollTop);
+      await caretToLine(page, 3);
+      await sleep(200);
+      t.eq('and then nothing pins the caret', await page.evaluate(() => window.__irori.view.scrollDOM.scrollTop), before);
+
+      await page.click('#hair');
+      await sleep(320);
+      await page.click('#fseg'); // focus mode: band 20%–80%
+      await page.click('#tseg');
+      await page.evaluate(() => {
+        const el = document.getElementById('tposR');
+        el.value = '95'; // below the band's bottom edge
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      await settled(page);
+      await caretToLine(page, 90);
+      await settled(page);
+      const g = await page.evaluate(() => {
+        const v = window.__irori.view;
+        const c = v.coordsAtPos(v.state.selection.main.head);
+        const r = v.scrollDOM.getBoundingClientRect();
+        const band = window.__irori.focus.bandPx();
+        return {
+          caret: (c.top + c.bottom) / 2,
+          anchor: window.__irori.typewriter.anchorY(),
+          top: band.top,
+          bottom: band.bottom,
+          pct: window.__irori.typewriter.anchorPct(),
+        };
+      });
+      t.ok('the anchor is pulled into the band', g.anchor > g.top && g.anchor < g.bottom, JSON.stringify(g));
+      t.ok('and so is the caret', g.caret > g.top && g.caret < g.bottom, JSON.stringify(g));
+      t.near('the caret sits on the clamped anchor', g.caret, g.anchor, 2);
+      t.ok('the clamp is what moved it, not the slider', g.pct < 95, String(g.pct));
+    },
+  },
+  {
+    id: 'B-97',
+    name: 'Switching typewriter mode never jumps the page: on, the row glides to the anchor; off, it keeps its height — or glides up when the page has no room to keep it',
+    async run(t, ctx) {
+      const page = await ctx.open({ files: { '/n/a.md': long(200) }, startup: '/n/a.md' });
+      await sleep(250);
+      await page.click('#hair');
+      await sleep(320);
+      await caretToLine(page, 70);
+      await page.evaluate(() => (window.__irori.view.scrollDOM.scrollTop = 1800));
+      await sleep(250);
+      /** click the switch and sample the caret's height on the next few frames */
+      const toggle = () =>
+        page.evaluate(async () => {
+          const v = window.__irori.view;
+          const y = () => {
+            const c = v.coordsAtPos(v.state.selection.main.head);
+            const r = v.scrollDOM.getBoundingClientRect();
+            return c ? (c.top + c.bottom) / 2 - r.top : null;
+          };
+          const frames = [y()];
+          document.getElementById('tseg').click();
+          for (let i = 0; i < 6; i++) {
+            await new Promise((r) => requestAnimationFrame(r));
+            frames.push(y());
+          }
+          return frames;
+        });
+      const anchorRel = () =>
+        page.evaluate(() => window.__irori.typewriter.anchorY() - window.__irori.view.scrollDOM.getBoundingClientRect().top);
+      const caretRel = () =>
+        page.evaluate(() => {
+          const v = window.__irori.view;
+          const c = v.coordsAtPos(v.state.selection.main.head);
+          const r = v.scrollDOM.getBoundingClientRect();
+          return (c.top + c.bottom) / 2 - r.top;
+        });
+
+      const on = await toggle();
+      // the padding grows by a third of a screen the moment the mode comes on; unless the scroller
+      // absorbs that in the same frame, the text jumps before the animation even starts
+      const jump = Math.max(...on.slice(1, 4).map((y) => Math.abs(y - on[0])));
+      t.ok('turning it on moves the row by frames, not in one jump', jump < 20, on.map((y) => y.toFixed(0)).join(' '));
+      await settled(page);
+      t.near('and it ends on the anchor', await caretRel(), await anchorRel(), 2);
+
+      const held = await caretRel();
+      const off = await toggle();
+      t.ok('turning it off leaves the row exactly where it was', Math.max(...off.map((y) => Math.abs(y - held))) <= 2, off.map((y) => y.toFixed(0)).join(' '));
+      await sleep(400);
+      t.near('and it stays there', await caretRel(), held, 2);
+      t.ok('the mode really is off', !(await page.evaluate(() => document.body.classList.contains('typewriter'))), '');
+
+      // the one case the height cannot be kept: no text left above the caret to scroll up. The row
+      // has to rise — and that rise is a move like any other, so it is glided, not cut.
+      await page.click('#tseg');
+      await settled(page);
+      await caretToLine(page, 1);
+      await settled(page);
+      const rising = await toggle();
+      t.ok('the switch answers the click at once', !(await page.evaluate(() => document.querySelector('#tseg i[data-on="1"]').classList.contains('on'))), '');
+      t.ok('the row rises frame by frame instead of cutting', Math.max(...rising.slice(1, 4).map((y) => Math.abs(y - rising[0]))) < 20, rising.slice(0, 6).map((y) => y.toFixed(0)).join(' '));
+      await settled(page);
+      const top = await page.evaluate(() => ({
+        caret: window.__irori.view.coordsAtPos(0).top - window.__irori.view.scrollDOM.getBoundingClientRect().top,
+        scrollTop: window.__irori.view.scrollDOM.scrollTop,
+        padTop: window.__irori.view.documentPadding.top,
+        on: document.body.classList.contains('typewriter'),
+      }));
+      t.eq('and lands with the document at its top', top.scrollTop, 0);
+      t.eq('on the ordinary top padding', top.padTop, 44);
+      t.ok('the first line is visible there', top.caret > 0 && top.caret < 120, JSON.stringify(top));
+      t.ok('the mode is off', !top.on, '');
     },
   },
 ];

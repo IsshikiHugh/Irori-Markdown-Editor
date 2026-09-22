@@ -13,6 +13,7 @@ import { createTOC } from './features/toc';
 import { createMinimap } from './features/minimap';
 import type { Minimap } from './features/minimap';
 import { createFocus } from './features/focus';
+import { createTypewriter } from './features/typewriter';
 import { createGlide } from './features/glide';
 import { clearPrint, exportPdf, preparePrint } from './features/export';
 import { countText, formatCounts } from './features/wordcount';
@@ -126,13 +127,15 @@ async function boot() {
     return abs ? platform.assetUrl(abs) : null;
   };
 
-  /* in focus mode the caret must stay inside the focus band; follow it at most once per frame */
+  /* focus mode keeps the caret inside the band, typewriter mode pins it to one height; whichever
+     is on, follow the caret at most once per frame */
   let bandFrame = 0;
-  const followBand = () => {
+  const followCaret = () => {
     if (bandFrame) return;
     bandFrame = requestAnimationFrame(() => {
       bandFrame = 0;
       focus.keepCaretInBand();
+      typewriter.follow();
     });
   };
 
@@ -144,7 +147,7 @@ async function boot() {
       afterDocChange();
     },
     onUpdate() {
-      followBand();
+      followCaret();
     },
     onSave() {
       void doc.save().then((ok) => ok && toast('已保存'));
@@ -188,6 +191,7 @@ async function boot() {
   // never trips over "not initialized yet".
   let focusRef: ReturnType<typeof createFocus> | null = null;
   let minimapRef: Minimap | null = null;
+  let typewriterRef: ReturnType<typeof createTypewriter> | null = null;
 
   const minimap = createMinimap(
     view,
@@ -236,9 +240,37 @@ async function boot() {
       const relayout = () => minimapRef?.invalidate();
       view.requestMeasure({ read: () => 0, write: relayout });
       requestAnimationFrame(() => requestAnimationFrame(relayout));
+      // the band moved: typewriter mode clamps its anchor into it, so the row may have to move too
+      // (deferred — reading the caret's coordinates inside a measure cycle is not allowed)
+      requestAnimationFrame(() => typewriterRef?.follow());
     },
+    // typewriter mode needs room above and below the text for the first and last lines to reach
+    // its anchor; focus mode owns the padding, so it asks for that floor here
+    (h) => typewriterRef?.pads(h) ?? { top: 0, bottom: 0 },
   );
   focusRef = focus;
+
+  const typewriter = createTypewriter(
+    view,
+    {
+      seg: $('tseg'),
+      row: $('trow'),
+      slider: $<HTMLInputElement>('tposR'),
+      value: $('tposv'),
+      guide: $('twguide'),
+    },
+    settings.value.typewriter,
+    (p) => settings.patch({ typewriter: p }),
+    glide,
+    () => focus.syncPads(),
+    // while focus mode is on the caret may not leave the band, so the anchor is clamped into it
+    () => (focusRef?.isOn() ? focusRef.bandPx() : null),
+    (h) => focus.padTopFor(0, h),
+  );
+  typewriterRef = typewriter;
+  // the guide hairline lives inside the editor, like the fade layer
+  view.dom.appendChild($('twguide'));
+  focus.syncPads();
 
   const toc = createTOC(
     view,
@@ -276,13 +308,19 @@ async function boot() {
   addEventListener('resize', () => {
     focus.apply();
     focus.syncPads();
+    // the anchor is a percentage of the height, so a resize moves it: put the row there directly,
+    // an animation would only chase the window's edge
+    typewriter.apply();
     minimap.layout();
     toc.spy();
   });
   // In focus mode the caret must always stay inside the focus band. We follow it on every update
   // rather than cancelling the animation on keypress — the latter lets "Enter, then keep typing"
   // interrupt a glide in progress, leaving the caret stranded outside the band.
-  view.dom.addEventListener('mouseup', () => focus.keepCaretInBand());
+  view.dom.addEventListener('mouseup', () => {
+    focus.keepCaretInBand();
+    typewriter.follow();
+  });
 
   /* ---------- drawer + settings ---------- */
   // Drawer controls don't take focus: once focus leaves the text, CodeMirror hides the caret —
@@ -323,6 +361,8 @@ async function boot() {
     settings.patch({ fontFamily: fontin.value.trim() || settings.value.fontFamily });
     applyFont(view, settings.value.fontFamily);
     minimap.layout();
+    // line heights just changed under the caret
+    requestAnimationFrame(() => typewriter.follow());
   };
   reflectSettings();
 
@@ -389,6 +429,7 @@ async function boot() {
     minimap,
     toc,
     focus,
+    typewriter,
     glide,
     toast,
     focusEditor,

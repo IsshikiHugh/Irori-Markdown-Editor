@@ -29,6 +29,8 @@
   <aside class="mini" id="mini"><div class="content" id="miniContent" aria-hidden="true"></div><div class="vp" id="vp"></div></aside>
   <div class="hair" id="hair" title="打开侧边栏 · ⌘\"></div>
   <div class="fade" id="fade"></div>
+  <!-- the height the caret's row is held at, shown while that slider is being dragged -->
+  <div class="twguide" id="twguide"></div>
 
   <div class="scrim" id="scrim"></div>
   <aside class="drawer">
@@ -62,6 +64,10 @@
           <div class="curvehint">拖动三个控制点（含中间点）：调整专注区边缘由清晰到淡出的快慢</div>
         </div>
       </div>
+    </div>
+    <div class="g">
+      <div class="fitem"><span style="font-weight:600">打字机模式</span><div class="fseg" id="tseg"><i data-on="0" class="on">关</i><i data-on="1">开</i></div></div>
+      <div class="frow" id="trow"><span class="k">行高度</span><input type="range" id="tposR" min="10" max="90" step="1" value="45"><span class="unit" id="tposv">45%</span></div>
     </div>
 
     <hr class="divider"><div class="secttitle">设置</div>

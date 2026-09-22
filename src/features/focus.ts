@@ -32,6 +32,8 @@ export const CURVE_DEFAULT = [
   { x: 0.55, y: 0.99 },
 ];
 const GAP = 8;
+/** the top padding of a page with no mode on — the value style.css gives `--pad-top` */
+export const BASE_PAD_TOP = 44;
 
 export function createFocus(
   view: EditorView,
@@ -42,6 +44,9 @@ export function createFocus(
   /** the focus band / padding changed: the caller must re-lay out the minimap, or it keeps
       drawing with the old padding */
   onBandChange: () => void = () => {},
+  /** space typewriter mode needs above and below the text; padding has one writer, and this
+      is it (see features/typewriter.ts) */
+  padFloor: (height: number) => { top: number; bottom: number } = () => ({ top: 0, bottom: 0 }),
 ) {
   let curve = prefs.curve?.length === 3 ? prefs.curve.map((p) => ({ ...p })) : CURVE_DEFAULT.map((p) => ({ ...p }));
   els.topR.value = String(prefs.top);
@@ -104,6 +109,7 @@ export function createFocus(
       }),
       write: ({ h, textH }) => {
         const content = view.contentDOM;
+        const floor = padFloor(h);
         let top = '';
         let bottom = '';
         if (isOn()) {
@@ -111,10 +117,14 @@ export function createFocus(
           const fbot = parseFloat(els.botR.value);
           const padTop = (ftop * h) / 100;
           const band = ((fbot - ftop) * h) / 100;
-          top = padTop + 'px';
-          bottom = (textH <= band ? Math.max(0, h - padTop - textH) : ((100 - ftop) * h) / 100) + 'px';
+          top = Math.max(padTop, floor.top) + 'px';
+          bottom = Math.max(floor.bottom, textH <= band ? Math.max(0, h - padTop - textH) : ((100 - ftop) * h) / 100) + 'px';
+        } else if (floor.top || floor.bottom) {
+          // typewriter mode alone: the anchor decides both margins
+          top = floor.top + 'px';
+          bottom = floor.bottom + 'px';
         } else {
-          const padTop = parseFloat(getComputedStyle(content).getPropertyValue('--pad-top')) || 44;
+          const padTop = parseFloat(getComputedStyle(content).getPropertyValue('--pad-top')) || BASE_PAD_TOP;
           // fits on one screen → no scroll-past-the-end space (the content box itself is
           // min-height:100%, so clicking the empty area still places the caret)
           bottom = padTop + textH <= h ? '0px' : '';
@@ -130,6 +140,12 @@ export function createFocus(
       },
     });
   }
+  /** What the top padding would be for a given floor — typewriter mode asks before it swaps its
+      own padding away, so it can move the text there itself instead of letting the swap jump it. */
+  function padTopFor(floorTop: number, h = view.scrollDOM.clientHeight) {
+    if (isOn()) return Math.max((parseFloat(els.topR.value) * h) / 100, floorTop);
+    return floorTop || BASE_PAD_TOP;
+  }
   function bandPx() {
     const rect = view.scrollDOM.getBoundingClientRect();
     return {
@@ -140,6 +156,9 @@ export function createFocus(
   let pendingBand = 0;
   function keepCaretInBand() {
     if (!isOn()) return;
+    // typewriter mode holds the caret at one height, and its anchor is already clamped into this
+    // band — two followers would tug the same caret to two different places
+    if (document.body.classList.contains('typewriter')) return;
     // If a glide is running, wait until it lands — but **never drop this request**:
     // when typing right after Enter, dropping the requests that arrive midway leaves the caret
     // outside the band for good.
@@ -292,5 +311,5 @@ export function createFocus(
   buildGrad();
   if (prefs.on) setOn(true);
 
-  return { apply, setOn, keepCaretInBand, isOn, bandPx, buildGrad, glideDuration, syncPads: applyPads };
+  return { apply, setOn, keepCaretInBand, isOn, bandPx, padTopFor, buildGrad, glideDuration, syncPads: applyPads };
 }
