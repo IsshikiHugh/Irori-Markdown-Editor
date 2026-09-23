@@ -45,7 +45,7 @@ const SNAP = 0.5;
 
 /** How long the caret must hold still (ms) before the row is pulled back to the anchor. Every
     caret move inside the window restarts it, so the paper moves once per pause, not per key. */
-export const FOLLOW_DELAY = 500;
+export const FOLLOW_DELAY = 250;
 
 /** Space above and below the text so that the first and the last line can both reach the anchor:
     everything above the anchor, and everything below it. */

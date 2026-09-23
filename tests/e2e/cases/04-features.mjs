@@ -3,7 +3,7 @@ import { MOD, caretToLine, setCaret, sleep } from '../harness.mjs';
 
 /** wait until nothing is gliding any more (a far jump takes up to 1.4s, plus a landing leg) */
 const settled = async (page) => {
-  // typewriter mode waits for the caret to hold still (FOLLOW_DELAY, 500ms) before it glides
+  // typewriter mode waits for the caret to hold still (FOLLOW_DELAY, 250ms) before it glides
   await page.waitForFunction(() => window.__irori.glide.running(), { timeout: 1000 }).catch(() => {});
   await page.waitForFunction(() => !window.__irori.glide.running(), { timeout: 6000 });
   await sleep(200);
@@ -674,7 +674,7 @@ export const cases = [
       // the row is only pulled back once the caret has held still for a while: a burst of Enters
       // inside that window moves the paper once, after the burst, not on every key
       const delay = await page.evaluate(() => window.__irori.typewriter.delay);
-      t.ok('the wait is about half a second', delay >= 300 && delay <= 800, String(delay));
+      t.ok('the wait is about a quarter of a second', delay >= 150 && delay <= 500, String(delay));
       let early = false;
       for (let i = 0; i < 3; i++) {
         await page.keyboard.press('Enter');
