@@ -251,6 +251,41 @@ export const cases = [
     },
   },
   {
+    id: 'B-30c',
+    name: 'A selection inside a code block can be seen: the band is a tint over the selection, not a lid on it',
+    async run(t, ctx) {
+      const page = await ctx.open({ files: { '/n/a.md': ['开头', '```js', 'const a = 1;', 'const b = 2;', '```', '结尾'].join('\n') }, startup: '/n/a.md' });
+      await sleep(300);
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        const from = v.state.doc.line(3).from + 2;
+        const to = v.state.doc.line(4).to - 2;
+        v.dispatch({ selection: { anchor: from, head: to } });
+        v.focus();
+      });
+      await sleep(250);
+      const r = await page.evaluate(() => {
+        const alpha = (el) => {
+          const m = getComputedStyle(el).backgroundColor.match(/rgba?\(([^)]+)\)/);
+          const parts = m ? m[1].split(',').map((x) => parseFloat(x)) : [];
+          return parts.length === 4 ? parts[3] : 1;
+        };
+        const lines = [...document.querySelectorAll('.cm-content .cm-line.cb')];
+        const layer = document.querySelector('.cm-selectionLayer');
+        return {
+          bands: lines.length,
+          alphas: lines.map(alpha),
+          inline: [...document.querySelectorAll('.cm-content .code')].map(alpha),
+          layerBelow: layer ? parseInt(getComputedStyle(layer).zIndex, 10) < 0 : null,
+          drawn: document.querySelectorAll('.cm-selectionBackground').length,
+        };
+      });
+      t.ok('the code block is decorated', r.bands >= 3, String(r.bands));
+      t.ok('the selection is drawn on the layer behind the text', r.layerBelow === true && r.drawn >= 1, JSON.stringify(r));
+      t.ok('so every code line lets it show through (translucent band)', r.alphas.every((a) => a < 1), r.alphas.join(' '));
+    },
+  },
+  {
     id: 'B-29',
     name: 'Pasting plain text keeps the source model (multiple lines do not collapse into one)',
     async run(t, ctx) {

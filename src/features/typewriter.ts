@@ -12,6 +12,11 @@
       click far away. Every one of those moves goes through the shared glide
       (features/glide.ts), the same motion the TOC, the minimap and focus mode scroll
       with: one line and one page must start, run and come to rest the same way.
+      The move waits for the caret to hold still first (FOLLOW_DELAY): each further caret
+      move inside that window replaces the pending one and restarts the wait, so a burst
+      of Enters moves the paper once, at its end, rather than tugging it on every key.
+      Only this mode's own following waits; a TOC or minimap click, focus mode and the
+      switch itself still move at once.
 
    With focus mode on as well, the anchor is clamped into the focus band: the caret must
    stay in the part of the page that is not faded out. */
@@ -37,6 +42,10 @@ export type TypewriterEls = {
 /** Below this much (a fraction of a line) there is nothing to animate: it is the pixel or two a
     glide lands off by once the lines it crossed have really been measured. */
 const SNAP = 0.5;
+
+/** How long the caret must hold still (ms) before the row is pulled back to the anchor. Every
+    caret move inside the window restarts it, so the paper moves once per pause, not per key. */
+export const FOLLOW_DELAY = 500;
 
 /** Space above and below the text so that the first and the last line can both reach the anchor:
     everything above the anchor, and everything below it. */
@@ -123,12 +132,13 @@ export function createTypewriter(
     return (c.top + c.bottom) / 2 - anchorY();
   }
 
-  function follow(afterGlide = false) {
+  /** bring the caret's row to the anchor now (the switch, and the landing check after a glide) */
+  function followNow(afterGlide = false) {
     if (!isOn()) return;
     // a glide is already carrying the view somewhere: re-aim once it lands rather than fighting it
     // frame by frame (the same rule focus mode follows)
     if (glide.running()) {
-      whenIdle(() => follow(afterGlide));
+      whenIdle(() => followNow(afterGlide));
       return;
     }
     const dy = shift();
@@ -141,7 +151,19 @@ export function createTypewriter(
       return;
     }
     glide.to(() => view.scrollDOM.scrollTop + shift());
-    whenIdle(() => follow(true));
+    whenIdle(() => followNow(true));
+  }
+
+  /** The caret moved: bring its row to the anchor once it has held still for FOLLOW_DELAY. A
+      further move inside the window replaces this one — the wait starts over. */
+  let delayTimer: ReturnType<typeof setTimeout> | null = null;
+  function follow() {
+    if (!isOn()) return;
+    if (delayTimer) clearTimeout(delayTimer);
+    delayTimer = setTimeout(() => {
+      delayTimer = null;
+      followNow();
+    }, FOLLOW_DELAY);
   }
 
   /** Keep the caret's row where the eye last saw it while the padding under it changes.
@@ -224,7 +246,8 @@ export function createTypewriter(
       onChange();
     });
     // the page is standing still again: from here the row glides to the anchor, one single motion
-    if (on) follow();
+    // (at once: the switch was just clicked, a wait here would read as the click not taking)
+    if (on) followNow();
     save();
   }
   function setOn(on: boolean) {
@@ -250,5 +273,5 @@ export function createTypewriter(
   reflectSeg(prefs.on);
   if (prefs.on) document.body.classList.add('typewriter');
 
-  return { isOn, setOn, follow, pads, anchorY, anchorPct, apply };
+  return { isOn, setOn, follow, pads, anchorY, anchorPct, apply, delay: FOLLOW_DELAY };
 }

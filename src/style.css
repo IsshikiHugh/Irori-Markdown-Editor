@@ -132,7 +132,7 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .ln.morecomment{color:#b3a892;font-size:13px;letter-spacing:.5px;}
 .tok{color:var(--tok);}
 .b{font-weight:700;} .i{font-style:italic;}
-.code{font-family:ui-monospace,Menlo,monospace;font-size:.88em;background:#f2ede6;border-radius:4px;padding:0 3px;}
+.code{font-family:ui-monospace,Menlo,monospace;font-size:.88em;background:rgba(147,123,116,.05);border-radius:4px;padding:0 3px;}
 .lnk{color:var(--link);} .url{color:#b3a892;font-family:ui-monospace,Menlo,monospace;font-size:.88em;}
 
 /* ---- image lines: rendered at natural size, source revealed on hover ---- */
@@ -143,11 +143,15 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .imgwrap:hover .imgsrc{opacity:1;}
 .imgmiss{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#b3452e;background:rgba(179,69,46,.08);border:1px dashed rgba(179,69,46,.4);border-radius:6px;padding:4px 10px;line-height:1.4;}
 
-/* ---- fenced code blocks (tokens.ts: codeLineDeco): one band of monospace, fences dimmed ---- */
-.ln.cb,.cm-editor .cm-line.ln.cb{font-family:ui-monospace,Menlo,monospace;font-size:15px;line-height:1.8;color:#5b4f47;background-color:#f1ebe3;border-radius:0;padding:0 14px;tab-size:4;}
+/* ---- fenced code blocks (tokens.ts: codeLineDeco): one band of monospace, fences dimmed ----
+   The band (and inline code) is a translucent tint, not a solid colour: CodeMirror draws the
+   selection on a layer BEHIND the text, so a solid line background would cover it and a selection
+   inside a code block would be invisible. The tints are chosen to land on the same colours as
+   before over the paper (#f1ebe3 / #ede6dd / #e9e1d6, inline #f2ede6). */
+.ln.cb,.cm-editor .cm-line.ln.cb{font-family:ui-monospace,Menlo,monospace;font-size:15px;line-height:1.8;color:#5b4f47;background-color:rgba(147,110,86,.06);border-radius:0;padding:0 14px;tab-size:4;}
 .ln.cb.cbopen,.cm-editor .cm-line.ln.cb.cbopen{border-radius:8px 8px 0 0;padding-top:4px;}
 .ln.cb.cbclose,.cm-editor .cm-line.ln.cb.cbclose{border-radius:0 0 8px 8px;padding-bottom:4px;}
-.ln.cb.mhover{background-color:#ede6dd;} .ln.cb.aline{background-color:#e9e1d6;}
+.ln.cb.mhover{background-color:rgba(147,113,86,.1);} .ln.cb.aline{background-color:rgba(147,114,79,.14);}
 .cblang{color:#b3a892;}
 /* syntax colours (editor/highlight.ts, @lezer/highlight's classHighlighter): muted, on the paper.
    Colour only — no weight or slant — so code (a ```markdown block included) never looks rendered. */

@@ -3,7 +3,8 @@ import { MOD, caretToLine, setCaret, sleep } from '../harness.mjs';
 
 /** wait until nothing is gliding any more (a far jump takes up to 1.4s, plus a landing leg) */
 const settled = async (page) => {
-  await page.waitForFunction(() => window.__irori.glide.running(), { timeout: 600 }).catch(() => {});
+  // typewriter mode waits for the caret to hold still (FOLLOW_DELAY, 500ms) before it glides
+  await page.waitForFunction(() => window.__irori.glide.running(), { timeout: 1000 }).catch(() => {});
   await page.waitForFunction(() => !window.__irori.glide.running(), { timeout: 6000 });
   await sleep(200);
 };
@@ -650,7 +651,7 @@ export const cases = [
         await page.keyboard.type('新的一行');
         await page.keyboard.press('Enter');
         // the row rides back up on the shared glide, exactly like a one-line jump anywhere else
-        if (await page.waitForFunction(() => window.__irori.glide.running(), { timeout: 900 }).then(() => true, () => false)) glided++;
+        if (await page.waitForFunction(() => window.__irori.glide.running(), { timeout: 1500 }).then(() => true, () => false)) glided++;
         await settled(page);
         rows.push((await probe()).caret);
       }
@@ -669,6 +670,25 @@ export const cases = [
 
       const back = await probe();
       t.near('typing after a manual scroll snaps the row back', back.caret, back.anchor, 2);
+
+      // the row is only pulled back once the caret has held still for a while: a burst of Enters
+      // inside that window moves the paper once, after the burst, not on every key
+      const delay = await page.evaluate(() => window.__irori.typewriter.delay);
+      t.ok('the wait is about half a second', delay >= 300 && delay <= 800, String(delay));
+      let early = false;
+      for (let i = 0; i < 3; i++) {
+        await page.keyboard.press('Enter');
+        await sleep(delay * 0.4);
+        if (await page.evaluate(() => window.__irori.glide.running())) early = true;
+      }
+      t.ok('inside the wait window the paper holds still', !early, '');
+      const drifted = (await probe()).caret - back.anchor;
+      t.ok('so the caret has walked down the screen meanwhile', drifted > 20, drifted.toFixed(1));
+      const started = await page.waitForFunction(() => window.__irori.glide.running(), { timeout: delay * 3 }).then(() => true, () => false);
+      t.ok('once the burst ends the paper moves', started, '');
+      await settled(page);
+      const after = await probe();
+      t.near('and the row is back on the anchor', after.caret, after.anchor, 2);
     },
   },
   {
