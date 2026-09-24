@@ -14,8 +14,9 @@ export type Settings = {
   fontFamily: string;
   /** focus mode preferences (kept here so one file holds all persisted state) */
   focus: { on: boolean; top: number; bottom: number; curve: { x: number; y: number }[] };
-  /** typewriter mode: whether the caret's row is pinned, and at what height (percent) */
-  typewriter: { on: boolean; anchor: number };
+  /** typewriter mode: whether the caret's row is pinned, at what height (percent), and how long
+      the caret must hold still (ms) before the row is pulled back there */
+  typewriter: { on: boolean; anchor: number; delay: number };
   /** where pasted images go: a folder relative to the document's (or absolute); `{name}` is
       the document's name without its extension (paths.ts: imageDir) */
   imageDir: string;
@@ -35,7 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
       { x: 0.55, y: 0.99 },
     ],
   },
-  typewriter: { on: false, anchor: 45 },
+  typewriter: { on: false, anchor: 45, delay: 250 },
   imageDir: '{name}',
 };
 

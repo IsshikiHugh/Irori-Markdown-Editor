@@ -12,9 +12,10 @@
       click far away. Every one of those moves goes through the shared glide
       (features/glide.ts), the same motion the TOC, the minimap and focus mode scroll
       with: one line and one page must start, run and come to rest the same way.
-      The move waits for the caret to hold still first (FOLLOW_DELAY): each further caret
-      move inside that window replaces the pending one and restarts the wait, so a burst
-      of Enters moves the paper once, at its end, rather than tugging it on every key.
+      The move waits for the caret to hold still first (the "follow delay" in the drawer,
+      DEFAULT_FOLLOW_DELAY by default): each further caret move inside that window replaces
+      the pending one and restarts the wait, so a burst of Enters moves the paper once, at
+      its end, rather than tugging it on every key.
       Only this mode's own following waits; a TOC or minimap click, focus mode and the
       switch itself still move at once.
 
@@ -28,6 +29,8 @@ export type TypewriterPrefs = {
   on: boolean;
   /** where the caret's row sits, in percent of the editor's height */
   anchor: number;
+  /** how long the caret must hold still (ms) before its row is pulled back to the anchor */
+  delay: number;
 };
 
 export type TypewriterEls = {
@@ -35,6 +38,8 @@ export type TypewriterEls = {
   row: HTMLElement;
   slider: HTMLInputElement;
   value: HTMLElement;
+  /** the follow delay, in ms */
+  delay: HTMLInputElement;
   /** the hairline shown while the anchor is being dragged */
   guide: HTMLElement;
 };
@@ -43,9 +48,18 @@ export type TypewriterEls = {
     glide lands off by once the lines it crossed have really been measured. */
 const SNAP = 0.5;
 
-/** How long the caret must hold still (ms) before the row is pulled back to the anchor. Every
-    caret move inside the window restarts it, so the paper moves once per pause, not per key. */
-export const FOLLOW_DELAY = 250;
+/** How long the caret must hold still (ms) before the row is pulled back to the anchor, unless the
+    drawer says otherwise. Every caret move inside the window restarts it, so the paper moves once
+    per pause, not per key. */
+export const DEFAULT_FOLLOW_DELAY = 250;
+export const MAX_FOLLOW_DELAY = 2000;
+
+/** the delay as typed in the drawer, kept sane: a whole number of ms, 0 (at once) to the cap */
+export function clampDelay(raw: unknown): number {
+  const n = Math.round(Number(raw));
+  if (!Number.isFinite(n)) return DEFAULT_FOLLOW_DELAY;
+  return Math.min(MAX_FOLLOW_DELAY, Math.max(0, n));
+}
 
 /** Space above and below the text so that the first and the last line can both reach the anchor:
     everything above the anchor, and everything below it. */
@@ -77,10 +91,12 @@ export function createTypewriter(
   padTopWhenOff: (height: number) => number,
 ) {
   els.slider.value = String(prefs.anchor);
+  els.delay.value = String(clampDelay(prefs.delay));
 
   const isOn = () => document.body.classList.contains('typewriter');
   const lineHeight = () => view.defaultLineHeight || 39;
-  const save = () => persist({ on: isOn(), anchor: +els.slider.value });
+  const delay = () => clampDelay(els.delay.value);
+  const save = () => persist({ on: isOn(), anchor: +els.slider.value, delay: delay() });
 
   /** the anchor in percent, kept inside the focus band when focus mode is on */
   function anchorPct(height = view.scrollDOM.clientHeight): number {
@@ -154,7 +170,7 @@ export function createTypewriter(
     whenIdle(() => followNow(true));
   }
 
-  /** The caret moved: bring its row to the anchor once it has held still for FOLLOW_DELAY. A
+  /** The caret moved: bring its row to the anchor once it has held still for the follow delay. A
       further move inside the window replaces this one — the wait starts over. */
   let delayTimer: ReturnType<typeof setTimeout> | null = null;
   function follow() {
@@ -163,7 +179,7 @@ export function createTypewriter(
     delayTimer = setTimeout(() => {
       delayTimer = null;
       followNow();
-    }, FOLLOW_DELAY);
+    }, delay());
   }
 
   /** Keep the caret's row where the eye last saw it while the padding under it changes.
@@ -268,10 +284,14 @@ export function createTypewriter(
     if (isOn()) showGuide();
   };
   els.slider.onchange = save;
+  els.delay.onchange = () => {
+    els.delay.value = String(delay()); // show what was actually kept (clamped, whole ms)
+    save();
+  };
 
   reflect();
   reflectSeg(prefs.on);
   if (prefs.on) document.body.classList.add('typewriter');
 
-  return { isOn, setOn, follow, pads, anchorY, anchorPct, apply, delay: FOLLOW_DELAY };
+  return { isOn, setOn, follow, pads, anchorY, anchorPct, apply, delay };
 }

@@ -264,8 +264,8 @@ body.menuopen .drawer{transform:translateX(0);}
 .fadjust{display:flex;align-items:center;justify-content:space-between;cursor:pointer;font-size:12px;color:var(--sub);padding:8px 0 2px;user-select:none;} .fadjust:hover{color:var(--accent);}
 .fcaret{font-size:10px;color:#b0a696;transition:transform .18s ease;} #frange.open .fcaret{transform:rotate(90deg);color:var(--accent);}
 #fpanel{display:none;} #frange.open #fpanel{display:block;}
-/* typewriter mode: the anchor slider only matters while the mode is on */
-#trow{display:none;} body.typewriter #trow{display:flex;}
+/* typewriter mode: the anchor slider and the follow delay only matter while the mode is on */
+#trow,#tdrow,#tdhint{display:none;} body.typewriter #trow,body.typewriter #tdrow{display:flex;} body.typewriter #tdhint{display:block;}
 /* The anchor hairline: shown for a moment while the slider is dragged, so the height being set is
    visible on the page itself. Inside the editor, like the fade layer — below the caret (150). Two
    hairlines tapering toward the middle, the same vocabulary as the head ornament: they bracket the

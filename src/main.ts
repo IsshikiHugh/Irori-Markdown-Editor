@@ -262,6 +262,7 @@ async function boot() {
       row: $('trow'),
       slider: $<HTMLInputElement>('tposR'),
       value: $('tposv'),
+      delay: $<HTMLInputElement>('tdelay'),
       guide: $('twguide'),
     },
     settings.value.typewriter,

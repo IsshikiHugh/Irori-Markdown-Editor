@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampAnchor, typewriterPads } from '../../src/features/typewriter';
+import { DEFAULT_FOLLOW_DELAY, MAX_FOLLOW_DELAY, clampAnchor, clampDelay, typewriterPads } from '../../src/features/typewriter';
 
 describe('typewriter padding', () => {
   it('reserves the space above the anchor, and the space below it', () => {
@@ -29,5 +29,25 @@ describe('typewriter anchor', () => {
 
   it('falls back to the middle of a band too narrow for a line', () => {
     expect(clampAnchor(90, { top: 40, bottom: 44 }, 20)).toBe(42);
+  });
+});
+
+describe('typewriter follow delay', () => {
+  it('defaults to a quarter of a second', () => {
+    expect(DEFAULT_FOLLOW_DELAY).toBe(250);
+  });
+
+  it('keeps what was typed, as whole milliseconds inside the range', () => {
+    expect(clampDelay('100')).toBe(100);
+    expect(clampDelay(0)).toBe(0);
+    expect(clampDelay(99.6)).toBe(100);
+    expect(clampDelay(-5)).toBe(0);
+    expect(clampDelay('99999')).toBe(MAX_FOLLOW_DELAY);
+  });
+
+  it('falls back to the default when the field is not a number', () => {
+    expect(clampDelay('')).toBe(0); // an empty field reads as 0: at once
+    expect(clampDelay('abc')).toBe(DEFAULT_FOLLOW_DELAY);
+    expect(clampDelay(undefined)).toBe(DEFAULT_FOLLOW_DELAY);
   });
 });

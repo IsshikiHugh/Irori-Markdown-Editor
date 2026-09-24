@@ -3,7 +3,7 @@ import { MOD, caretToLine, setCaret, sleep } from '../harness.mjs';
 
 /** wait until nothing is gliding any more (a far jump takes up to 1.4s, plus a landing leg) */
 const settled = async (page) => {
-  // typewriter mode waits for the caret to hold still (FOLLOW_DELAY, 250ms) before it glides
+  // typewriter mode waits for the caret to hold still (the follow delay, 250ms by default) before it glides
   await page.waitForFunction(() => window.__irori.glide.running(), { timeout: 1000 }).catch(() => {});
   await page.waitForFunction(() => !window.__irori.glide.running(), { timeout: 6000 });
   await sleep(200);
@@ -673,8 +673,8 @@ export const cases = [
 
       // the row is only pulled back once the caret has held still for a while: a burst of Enters
       // inside that window moves the paper once, after the burst, not on every key
-      const delay = await page.evaluate(() => window.__irori.typewriter.delay);
-      t.ok('the wait is about a quarter of a second', delay >= 150 && delay <= 500, String(delay));
+      const delay = await page.evaluate(() => window.__irori.typewriter.delay());
+      t.eq('the wait is a quarter of a second by default', delay, 250);
       let early = false;
       for (let i = 0; i < 3; i++) {
         await page.keyboard.press('Enter');
@@ -739,19 +739,43 @@ export const cases = [
       const last = await at(-1);
       t.near('the last line can reach the anchor', last.caret, last.anchor, 2);
 
+      // the follow delay sits next to the height, is clamped to whole ms, and is remembered
+      const delayRow = await page.evaluate(() => ({
+        shown: getComputedStyle(document.getElementById('tdrow')).display !== 'none',
+        value: document.getElementById('tdelay').value,
+      }));
+      t.ok('the follow delay is offered while the mode is on', delayRow.shown, '');
+      t.eq('and defaults to 250ms', delayRow.value, '250');
+      await page.evaluate(() => {
+        const el = document.getElementById('tdelay');
+        el.value = '99999';
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      t.eq('an absurd value is clamped', await page.evaluate(() => document.getElementById('tdelay').value), '2000');
+      await page.evaluate(() => {
+        const el = document.getElementById('tdelay');
+        el.value = '100';
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      t.eq('the mode uses the new delay', await page.evaluate(() => window.__irori.typewriter.delay()), 100);
+      await sleep(300);
+
       const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('irori.settings') || '{}').typewriter);
       t.eq('the toggle is remembered', stored.on, true);
       t.eq('the height is remembered', stored.anchor, 25);
+      t.eq('the delay is remembered', stored.delay, 100);
       await page.reload({ waitUntil: 'load' });
       await page.waitForFunction(() => window.__irori && window.__irori.view);
       await sleep(300);
       const restored = await page.evaluate(() => ({
         on: document.body.classList.contains('typewriter'),
         v: document.getElementById('tposR').value,
+        d: document.getElementById('tdelay').value,
         seg: document.querySelector('#tseg i[data-on="1"]').className,
       }));
       t.eq('still on after a restart', restored.on, true);
       t.eq('still at 25%', restored.v, '25');
+      t.eq('still 100ms', restored.d, '100');
       t.ok('the drawer switch shows it', restored.seg.includes('on'), restored.seg);
     },
   },
