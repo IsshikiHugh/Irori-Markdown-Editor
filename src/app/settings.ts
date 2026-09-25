@@ -23,6 +23,13 @@ export class SettingsStore {
     if (this.timer) clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.platform.saveSettings(this.value), 200);
   }
+
+  /** write now (before this page is replaced, which would lose the pending write) */
+  async flush() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    await this.platform.saveSettings(this.value);
+  }
 }
 
 function merge(base: Settings, part: Partial<Settings>): Settings {

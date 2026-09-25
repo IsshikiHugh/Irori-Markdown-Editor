@@ -20,6 +20,8 @@ export type Settings = {
   /** where pasted images go: a folder relative to the document's (or absolute); `{name}` is
       the document's name without its extension (paths.ts: imageDir) */
   imageDir: string;
+  /** the last server address typed into the remote panel (a port or a URL), offered next time */
+  remoteAddr: string;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -38,6 +40,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   typewriter: { on: false, anchor: 45, delay: 250 },
   imageDir: '{name}',
+  remoteAddr: '',
 };
 
 export type Stat = { mtimeMs: number; size: number } | null;
@@ -49,7 +52,7 @@ export type UpdateInfo = { version: string };
 export type RestartReady = { ok: boolean; path: string | null };
 
 export interface Platform {
-  readonly kind: 'tauri' | 'web';
+  readonly kind: 'tauri' | 'web' | 'remote';
 
   /** the file this window was asked to open (file association / CLI arg), if any */
   startupPath(): Promise<string | null>;
@@ -83,7 +86,8 @@ export interface Platform {
   /** absolute fs path → something an <img> can load */
   assetUrl(path: string): string;
 
-  newWindow(): Promise<void>;
+  /** a new window: blank, or — with `query` (e.g. `remote=…&file=…`) — booted with that query */
+  newWindow(query?: string): Promise<void>;
   /** ⌘W — goes through the same close flow as clicking the red traffic light (triggers the
       unsaved-changes confirmation) */
   closeWindow(): Promise<void>;

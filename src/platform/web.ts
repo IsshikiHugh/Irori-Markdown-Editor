@@ -20,6 +20,8 @@ export class WebPlatform implements Platform {
   closeHandler: (() => boolean | Promise<boolean>) | null = null;
   title = '';
   newWindows = 0;
+  /** the query each new window was asked to boot with ('' for a blank one) */
+  windowQueries: string[] = [];
 
   private touch(path: string, e: Partial<Entry>) {
     const p = normalize(path);
@@ -97,8 +99,9 @@ export class WebPlatform implements Platform {
     const p = normalize(path);
     return this.urls.get(p) ?? (this.files.has(p) ? 'about:blank#' + encodeURIComponent(p) : '');
   }
-  async newWindow() {
+  async newWindow(query?: string) {
     this.newWindows++;
+    this.windowQueries.push(query ?? '');
   }
   /** tests set the release to offer and can make a check or a download fail; `restarts` holds
       what each restart would have reopened */

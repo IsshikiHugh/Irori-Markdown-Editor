@@ -142,7 +142,8 @@ export class DocumentSession {
 
   startWatch() {
     this.stopWatch();
-    this.watchTimer = setInterval(() => void this.checkDisk(), WATCH_INTERVAL);
+    // a check that fails (a remote file whose server is not answering) is simply tried again next round
+    this.watchTimer = setInterval(() => void this.checkDisk().catch(() => {}), WATCH_INTERVAL);
   }
   stopWatch() {
     if (this.watchTimer) clearInterval(this.watchTimer);
