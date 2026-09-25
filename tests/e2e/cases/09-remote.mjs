@@ -56,7 +56,9 @@ const panelItems = (page) => page.$$eval('.rpanel .ritem .rname', (els) => els.m
 const shortcut = async (page, key, shift = false) => {
   await page.keyboard.down(MOD);
   if (shift) await page.keyboard.down('Shift');
-  await page.keyboard.press(key);
+  // the physical key (KeyS, not 's'): only then does e.key follow Shift on Linux / Windows, as
+  // the redo case in 03-editing explains
+  await page.keyboard.press('Key' + key.toUpperCase());
   if (shift) await page.keyboard.up('Shift');
   await page.keyboard.up(MOD);
 };
@@ -175,8 +177,11 @@ export const cases = [
         t.ok('the other shared file opens in the same window', !(await remote.$('.rpanel')));
 
         await shortcut(remote, 's', true);
-        await sleep(100);
-        t.ok('save-as explains itself instead of writing anywhere', /不能另存为/.test(await remote.$eval('#toast', (e) => e.textContent)));
+        // wait for the message rather than a fixed time: CI runners are several times slower
+        const said = await until(remote, () => /不能另存为/.test(document.querySelector('#toast').textContent), null, 3000)
+          .then(() => true)
+          .catch(() => false);
+        t.ok('save-as explains itself instead of writing anywhere', said, await remote.$eval('#toast', (e) => e.textContent));
       } finally {
         host.stop();
       }
