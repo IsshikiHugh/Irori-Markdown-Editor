@@ -140,6 +140,7 @@ echo "› smoke report: $(cat "$out")"
 node -e '
 const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 const need = [["host is Tauri", r.host === "tauri"], ["engine is the system WebView", r.engine === "WebKit"],
+  ["settings are saved and read back", r.settingsPersist === true],
   ["file was read", (r.chars || 0) > 20], ["lines were rendered", (r.renderedLines || 0) >= 5],
   ["heading decoration", r.decorated.h1], ["quote decoration", r.decorated.quote], ["bold decoration", r.decorated.bold],
   ["list numbers line up on the dot", r.listDots != null && Math.abs(r.listDots) <= 0.6],

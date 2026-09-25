@@ -92,11 +92,32 @@ if (smoke?.pdf) {
   }
   await ctx.platform.writeText(smoke.out + '.pdfinfo', JSON.stringify(pdf));
 }
+// settings really persist through the shell: write what is loaded (so nothing changes) and read
+// it back. The page and the Rust command once disagreed on the argument's name and every save
+// was silently rejected — no browser test can see that, only the real shell.
+let settingsPersist: boolean | string = false;
+if (smoke) {
+  try {
+    await ctx.platform.saveSettings(ctx.settings.value);
+    const back = await ctx.platform.loadSettings();
+    // the shell writes keys sorted, so compare regardless of order
+    const canon = (v: unknown): string =>
+      Array.isArray(v)
+        ? '[' + v.map(canon).join(',') + ']'
+        : v && typeof v === 'object'
+          ? '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canon((v as Record<string, unknown>)[k])).join(',') + '}'
+          : JSON.stringify(v);
+    settingsPersist = canon(back) === canon(ctx.settings.value);
+  } catch (err) {
+    settingsPersist = String(err);
+  }
+}
 if (smoke) {
   await ctx.platform.writeText(
     smoke.out,
     JSON.stringify({
       host: ctx.platform.kind,
+      settingsPersist,
       // ⌘C/⌘V live on the system Edit menu; this says whether the host provides one
       menu: smoke.menu,
       engine: navigator.userAgent.includes('AppleWebKit') && !navigator.userAgent.includes('Chrome') ? 'WebKit' : 'other',

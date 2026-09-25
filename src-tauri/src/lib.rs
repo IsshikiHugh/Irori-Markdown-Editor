@@ -9,7 +9,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
@@ -238,19 +238,12 @@ fn load_settings(app: tauri::AppHandle) -> Option<serde_json::Value> {
     serde_json::from_str(&raw).ok()
 }
 
-#[derive(Deserialize)]
-struct SaveSettings {
-    settings: serde_json::Value,
-}
-
+/// The argument is named `settings` because that is the key the page sends
+/// (`invoke('save_settings', { settings })`); Tauri matches arguments by name.
 #[tauri::command]
-fn save_settings(app: tauri::AppHandle, payload: SaveSettings) -> Res<()> {
+fn save_settings(app: tauri::AppHandle, settings: serde_json::Value) -> Res<()> {
     let file = settings_file(&app)?;
-    fs::write(
-        file,
-        serde_json::to_string_pretty(&payload.settings).map_err(err)?,
-    )
-    .map_err(err)
+    fs::write(file, serde_json::to_string_pretty(&settings).map_err(err)?).map_err(err)
 }
 
 #[derive(Serialize)]
