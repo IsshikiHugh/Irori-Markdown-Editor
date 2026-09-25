@@ -82,8 +82,9 @@ export async function launch() {
   });
 }
 
-/** Boot the app with a seeded virtual disk. */
-export async function openApp(browser, { files = {}, images = {}, startup = null, settings = null, update = null, viewport } = {}) {
+/** Boot the app with a seeded virtual disk (and, with `query`, the page's query string: how a
+    remote window is opened). */
+export async function openApp(browser, { files = {}, images = {}, startup = null, settings = null, update = null, viewport, query = '' } = {}) {
   const page = await browser.newPage();
   await page.setViewport(viewport || { width: 1440, height: 900 });
   page.on('pageerror', (e) => console.log('   [page error] ' + e.message));
@@ -101,7 +102,7 @@ export async function openApp(browser, { files = {}, images = {}, startup = null
     },
     { files, images, startup, settings, update },
   );
-  await page.goto(`${browser.__base}/index.html`, { waitUntil: 'load' });
+  await page.goto(`${browser.__base}/index.html${query ? '?' + query : ''}`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__irori && window.__irori.view, { timeout: 10000 });
   return page;
 }

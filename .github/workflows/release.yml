@@ -13,10 +13,12 @@ name: Release
 #
 # Flow: `prepare` works out the version, takes its notes from CHANGELOG.md (a missing section is
 # an error) and creates a draft release → the four platforms build in parallel and upload their
-# installers plus signed updater bundles → `publish` assembles latest.json (what installed copies
-# check for updates, via releases/latest) and publishes the draft — only if every build
+# installers plus signed updater bundles, and `host` uploads the irori-host binaries → `publish`
+# assembles latest.json (what installed copies check for updates, via releases/latest) and
+# publishes the draft — only if every build
 # succeeded. If any platform fails the release stays a draft instead of going out with a
-# platform missing; fix it and re-run the failed jobs.
+# platform missing; fix it and re-run the failed jobs. After it, `npm` publishes irori-host to npm
+# at the same version (skipped, with a warning, while the NPM_TOKEN secret is not set).
 # Versions containing `-` (e.g. 0.2.0-beta.1) are published as pre-releases, which installed
 # copies are never offered.
 #
@@ -223,9 +225,55 @@ jobs:
             src-tauri/target/**/release/bundle/**/*
           if-no-files-found: warn
 
+  # irori-host, the remote-files tool (server/), as standalone binaries: what server/install.sh
+  # downloads. Built on macOS so the darwin binaries can be signed ad hoc; Bun cross-compiles the
+  # rest from there.
+  host:
+    name: irori-host binaries
+    needs: prepare
+    if: needs.prepare.outputs.build == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      # the same Bun as CI's host job, which tested a binary on each platform
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: ./scripts/build-host.sh dist-host
+      - name: Test the binary this runner can run
+        run: |
+          gunzip -c dist-host/irori-host-darwin-arm64.gz > irori-host && chmod +x irori-host
+          IRORI_HOST_CMD=./irori-host node --test tests/host/irori-host.test.mjs
+      - name: Upload to the release
+        if: needs.prepare.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # the release is still a draft, found by id: upload through the API rather than by tag.
+        # A re-run first removes what an earlier attempt uploaded (a name can only be used once)
+        run: |
+          id=${{ needs.prepare.outputs.release_id }}
+          for f in dist-host/*; do
+            name=$(basename "$f")
+            old=$(gh api "repos/$GITHUB_REPOSITORY/releases/$id/assets" --paginate --jq ".[] | select(.name == \"$name\") | .id")
+            [[ -n "$old" ]] && gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$old"
+            gh api -X POST "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$id/assets?name=$name" \
+              -H 'content-type: application/octet-stream' --input "$f" --jq .name
+          done
+      - name: Upload binaries
+        if: needs.prepare.outputs.release != 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: irori-host
+          path: dist-host/*
+
   publish:
     name: Publish release
-    needs: [prepare, build]
+    needs: [prepare, build, host]
     if: needs.prepare.outputs.release == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -243,3 +291,42 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/${{ needs.prepare.outputs.release_id }}" -F draft=false --jq .html_url
+
+  # irori-host on npm (`npx irori-host`), at the app's version, once the release is out. Needs the
+  # repository secret NPM_TOKEN (an npm automation token); without it this job only says so.
+  # A re-run skips a version that is already on npm.
+  npm:
+    name: Publish irori-host to npm
+    needs: [prepare, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Publish
+        working-directory: server
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          if [[ -z "$NODE_AUTH_TOKEN" ]]; then
+            echo "::warning::NPM_TOKEN is not set; irori-host was not published to npm"
+            exit 0
+          fi
+          ver=${TAG#v}
+          if npm view "irori-host@$ver" version > /dev/null 2>&1; then
+            echo "::notice::irori-host@$ver is already on npm"
+            exit 0
+          fi
+          # server/package.json keeps 0.0.0 in the repository; the release stamps the real version
+          npm version "$ver" --no-git-tag-version
+          tag=latest
+          [[ "$ver" == *-* ]] && tag=next
+          npm publish --provenance --access public --tag "$tag"

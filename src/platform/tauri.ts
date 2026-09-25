@@ -54,8 +54,8 @@ export class TauriPlatform implements Platform {
   assetUrl(path: string) {
     return convertFileSrc(path);
   }
-  newWindow() {
-    return invoke<void>('new_window');
+  newWindow(query?: string) {
+    return invoke<void>('new_window', { query });
   }
   closeWindow() {
     return invoke<void>('close_window');

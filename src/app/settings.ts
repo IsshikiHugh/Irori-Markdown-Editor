@@ -21,7 +21,24 @@ export class SettingsStore {
   patch(part: Partial<Settings>) {
     this.value = merge(this.value, part);
     if (this.timer) clearTimeout(this.timer);
-    this.timer = setTimeout(() => void this.platform.saveSettings(this.value), 200);
+    this.timer = setTimeout(() => void this.write(), 200);
+  }
+
+  /** write now (before this page is replaced, which would lose the pending write) */
+  async flush() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    await this.write();
+  }
+
+  /** The remote key may have been made (by this window or another) since these settings were
+      read: keep the one on disk rather than writing it away — servers trust that key. */
+  private async write() {
+    if (!this.value.remoteKey) {
+      const disk = await this.platform.loadSettings().catch(() => null);
+      if (disk?.remoteKey) this.value = { ...this.value, remoteKey: disk.remoteKey };
+    }
+    await this.platform.saveSettings(this.value);
   }
 }
 

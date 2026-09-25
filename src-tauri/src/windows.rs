@@ -37,8 +37,9 @@ pub fn startup_path(window: tauri::Window, state: State<'_, Startup>) -> Option<
 fn window(
     app: &tauri::AppHandle,
     label: String,
+    url: WebviewUrl,
 ) -> tauri::WebviewWindowBuilder<'_, tauri::Wry, tauri::AppHandle> {
-    let b = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
+    let b = WebviewWindowBuilder::new(app, label, url)
         .title("Irori")
         .inner_size(1100.0, 780.0)
         .min_inner_size(480.0, 360.0)
@@ -53,6 +54,10 @@ fn window(
 
 /// A new window, opening `path` when given (a blank page otherwise).
 pub fn open_window(app: &tauri::AppHandle, path: Option<String>) -> Res<()> {
+    open_window_at(app, path, WebviewUrl::default())
+}
+
+fn open_window_at(app: &tauri::AppHandle, path: Option<String>, url: WebviewUrl) -> Res<()> {
     let label = format!("w{}", NEXT_WINDOW.fetch_add(1, Ordering::SeqCst));
     if let Some(path) = path {
         let startup = app.state::<Startup>();
@@ -62,14 +67,22 @@ pub fn open_window(app: &tauri::AppHandle, path: Option<String>) -> Res<()> {
             .map_err(err)?
             .insert(label.clone(), path);
     }
-    let win = window(app, label).build().map_err(err)?;
+    let win = window(app, label, url).build().map_err(err)?;
     let _ = win.set_focus();
     Ok(())
 }
 
+/// ⌘N — or, with `query`, a window whose page boots with it (a remote file: `remote=…&file=…`).
 #[tauri::command]
-pub fn new_window(app: tauri::AppHandle) -> Res<()> {
-    open_window(&app, None)
+pub fn new_window(app: tauri::AppHandle, query: Option<String>) -> Res<()> {
+    match query {
+        Some(q) if !q.is_empty() => open_window_at(
+            &app,
+            None,
+            WebviewUrl::App(format!("index.html?{q}").into()),
+        ),
+        _ => open_window(&app, None),
+    }
 }
 
 /// ⌘W: takes the same path as clicking the red light (close_requested → unsaved-changes confirm)

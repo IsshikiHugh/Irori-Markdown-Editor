@@ -92,11 +92,49 @@ if (smoke?.pdf) {
   }
   await ctx.platform.writeText(smoke.out + '.pdfinfo', JSON.stringify(pdf));
 }
+// settings really persist through the shell: write what is loaded (so nothing changes) and read
+// it back. The page and the Rust command once disagreed on the argument's name and every save
+// was silently rejected — no browser test can see that, only the real shell.
+let settingsPersist: boolean | string = false;
+if (smoke) {
+  try {
+    await ctx.platform.saveSettings(ctx.settings.value);
+    const back = await ctx.platform.loadSettings();
+    // the shell writes keys sorted, so compare regardless of order
+    const canon = (v: unknown): string =>
+      Array.isArray(v)
+        ? '[' + v.map(canon).join(',') + ']'
+        : v && typeof v === 'object'
+          ? '{' + Object.keys(v).sort().map((k) => JSON.stringify(k) + ':' + canon((v as Record<string, unknown>)[k])).join(',') + '}'
+          : JSON.stringify(v);
+    settingsPersist = canon(back) === canon(ctx.settings.value);
+  } catch (err) {
+    settingsPersist = String(err);
+  }
+}
+// remote servers are signed in to with an ECDSA key made by WebCrypto, which only a secure
+// context has: make and use one here (not the real one — nothing is saved)
+let remoteKeys: boolean | string = false;
+if (smoke) {
+  try {
+    const alg = { name: 'ECDSA', namedCurve: 'P-256' };
+    const pair = await crypto.subtle.generateKey(alg, true, ['sign', 'verify']);
+    const jwk = await crypto.subtle.exportKey('jwk', pair.privateKey);
+    const priv = await crypto.subtle.importKey('jwk', jwk, alg, false, ['sign']);
+    const data = new TextEncoder().encode('irori-host sign-in\nsmoke');
+    const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, priv, data);
+    remoteKeys = sig.byteLength === 64 && (await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pair.publicKey, sig, data));
+  } catch (err) {
+    remoteKeys = String(err);
+  }
+}
 if (smoke) {
   await ctx.platform.writeText(
     smoke.out,
     JSON.stringify({
       host: ctx.platform.kind,
+      settingsPersist,
+      remoteKeys,
       // ⌘C/⌘V live on the system Edit menu; this says whether the host provides one
       menu: smoke.menu,
       engine: navigator.userAgent.includes('AppleWebKit') && !navigator.userAgent.includes('Chrome') ? 'WebKit' : 'other',

@@ -5,6 +5,8 @@ import { getPlatform } from './platform';
 import { DEFAULT_IMAGE_DIR, resolveAgainst } from './platform/paths';
 import type { Platform } from './platform/types';
 import { SettingsStore } from './app/settings';
+import { identity, remoteQuery, type RemotePlatform } from './platform/remote';
+import { openRemotePanel } from './app/remote-panel';
 import { DocumentSession } from './app/document';
 import { storeImage, UnsavedDocumentError } from './app/images';
 import { applyFont, createEditor, setLocked } from './editor';
@@ -40,6 +42,8 @@ async function boot() {
   const platform: Platform = await getPlatform();
   const settings = new SettingsStore(platform);
   await settings.load();
+  /** set when this window edits a file shared by a remote server (for its whole life) */
+  const remote = platform.kind === 'remote' ? (platform as RemotePlatform) : null;
 
   /* ---------- document session ---------- */
   let view!: EditorView;
@@ -94,7 +98,7 @@ async function boot() {
       },
       onPath(path, missing) {
         $('filename').textContent = (path ? doc.name : '未命名') + (missing ? '（已不存在）' : '');
-        $('pathv').textContent = path ?? '未命名（尚未保存）';
+        $('pathv').textContent = path ? (remote ? remote.label + ' : ' + path : path) : '未命名（尚未保存）';
 
         void platform.setTitle(path ? doc.name + ' — Irori' : 'Irori');
       },
@@ -180,7 +184,8 @@ async function boot() {
   view.dom.appendChild($('fade'));
   // On macOS the title bar is transparent (tauri.conf.json: titleBarStyle=Overlay), so the text
   // has to make room for the traffic lights
-  if (platform.kind === 'tauri' && /Mac/.test(navigator.userAgent)) document.body.classList.add('overlay-titlebar');
+  const shell = remote ? remote.host : platform;
+  if (shell.kind === 'tauri' && /Mac/.test(navigator.userAgent)) document.body.classList.add('overlay-titlebar');
 
   /* ---------- features ---------- */
   // One glide, shared by three callers (TOC click / minimap click / focus mode pulling the caret
@@ -385,7 +390,52 @@ async function boot() {
   $('pdfbtn').onclick = exportAsPdf;
 
   // window-level shortcuts (v1 has no menu bar; see src/app/shortcuts.ts)
-  installShortcuts({ platform, doc, toast, setBuffer, exportPdf: exportAsPdf });
+  /* ---------- remote files ----------
+     A window is local or remote for its whole life (platform/remote.ts). Picking a shared file
+     opens it where it belongs: in this window when it is a remote window on the same server
+     (like ⌘O), by turning this window into it when it is still an untouched blank page, and in
+     a new window otherwise. */
+  const openRemote = async (sameServer = false) => {
+    document.body.classList.remove('menuopen');
+    const got = await openRemotePanel(
+      sameServer && remote
+        ? { addr: settings.value.remoteAddr, base: remote.base, identity: () => identity(shell) }
+        : { addr: settings.value.remoteAddr, identity: () => identity(shell) },
+    );
+    if (!got) return null;
+    if (got.addr !== settings.value.remoteAddr) settings.patch({ remoteAddr: got.addr });
+    if (remote && got.base === remote.base) return got.path; // the caller opens it here
+    const query = remoteQuery(got.base, got.path);
+    // an untitled, empty page has nothing to lose (its dirty flag is set from boot on: a buffer
+    // without a path always counts as unsaved)
+    if (!doc.path && !view.state.doc.length) {
+      await settings.flush().catch(() => {});
+      location.search = query;
+    } else {
+      await platform.newWindow(query);
+    }
+    return null;
+  };
+  const openRemoteHere = async () => {
+    const p = await openRemote();
+    if (!p) return;
+    try {
+      const text = await doc.open(p);
+      await mathReady(text);
+      setBuffer(text);
+      toast('已打开 ' + doc.name);
+    } catch (err) {
+      toast('打开失败：' + (err as Error).message);
+    }
+  };
+  $('remotebtn').onclick = () => void openRemoteHere();
+  if (remote) {
+    remote.notify = toast;
+    remote.pickShared = () => openRemote(true);
+    if (window.__iroriRemoteError) toast(window.__iroriRemoteError);
+  }
+
+  installShortcuts({ platform, doc, toast, setBuffer, exportPdf: exportAsPdf, openRemote: () => void openRemoteHere() });
 
   platform.onCloseRequested(() => doc.requestClose());
   /* ---------- open the file this window was launched with ---------- */

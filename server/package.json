@@ -1,0 +1,24 @@
+{
+  "name": "irori-host",
+  "version": "0.0.0",
+  "description": "Share single files with Irori's remote mode: a registry of shared files and a small server that reads and writes exactly those.",
+  "type": "module",
+  "bin": {
+    "irori-host": "irori-host.mjs"
+  },
+  "files": [
+    "irori-host.mjs",
+    "PROTOCOL.md",
+    "AGENTS.md",
+    "skills/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/IsshikiHugh/Irori-Markdown-Editor.git",
+    "directory": "server"
+  },
+  "keywords": ["irori", "markdown", "remote", "editor"]
+}

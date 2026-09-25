@@ -13,9 +13,11 @@ export type ShortcutDeps = {
   setBuffer: (text: string) => void;
   /** ⌘P: export the document as a PDF */
   exportPdf: () => void;
+  /** ⇧⌘O: open a file shared by a remote server */
+  openRemote: () => void;
 };
 
-export function installShortcuts({ platform, doc, toast, setBuffer, exportPdf }: ShortcutDeps): void {
+export function installShortcuts({ platform, doc, toast, setBuffer, exportPdf, openRemote }: ShortcutDeps): void {
 /* ---------- window-level shortcuts (no menu bar in v1) ----------
    These also have to work when the focus is NOT in the editor — typing in the
    drawer's font field must not make ⌘S or Esc stop working. Anything the editor's
@@ -62,6 +64,9 @@ addEventListener('keydown', (e) => {
         toast('已打开 ' + doc.name);
       }
     })();
+  } else if (k === 'o' && e.shiftKey) {
+    e.preventDefault();
+    openRemote();
   } else if (k === 's' && e.shiftKey) {
     e.preventDefault();
     void doc.saveAs().then((ok) => ok && toast('已另存为 ' + doc.name));
