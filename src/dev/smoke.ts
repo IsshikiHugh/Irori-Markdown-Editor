@@ -112,12 +112,29 @@ if (smoke) {
     settingsPersist = String(err);
   }
 }
+// remote servers are signed in to with an ECDSA key made by WebCrypto, which only a secure
+// context has: make and use one here (not the real one — nothing is saved)
+let remoteKeys: boolean | string = false;
+if (smoke) {
+  try {
+    const alg = { name: 'ECDSA', namedCurve: 'P-256' };
+    const pair = await crypto.subtle.generateKey(alg, true, ['sign', 'verify']);
+    const jwk = await crypto.subtle.exportKey('jwk', pair.privateKey);
+    const priv = await crypto.subtle.importKey('jwk', jwk, alg, false, ['sign']);
+    const data = new TextEncoder().encode('irori-host sign-in\nsmoke');
+    const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, priv, data);
+    remoteKeys = sig.byteLength === 64 && (await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pair.publicKey, sig, data));
+  } catch (err) {
+    remoteKeys = String(err);
+  }
+}
 if (smoke) {
   await ctx.platform.writeText(
     smoke.out,
     JSON.stringify({
       host: ctx.platform.kind,
       settingsPersist,
+      remoteKeys,
       // ⌘C/⌘V live on the system Edit menu; this says whether the host provides one
       menu: smoke.menu,
       engine: navigator.userAgent.includes('AppleWebKit') && !navigator.userAgent.includes('Chrome') ? 'WebKit' : 'other',

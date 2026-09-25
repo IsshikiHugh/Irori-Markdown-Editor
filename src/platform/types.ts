@@ -22,6 +22,9 @@ export type Settings = {
   imageDir: string;
   /** the last server address typed into the remote panel (a port or a URL), offered next time */
   remoteAddr: string;
+  /** the private key (a P-256 JWK) this Irori signs in to remote servers with, made the first
+      time it is needed (platform/remote.ts: identity). Never replaced once made: servers trust it */
+  remoteKey: JsonWebKey | null;
 };
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -41,6 +44,7 @@ export const DEFAULT_SETTINGS: Settings = {
   typewriter: { on: false, anchor: 45, delay: 250 },
   imageDir: '{name}',
   remoteAddr: '',
+  remoteKey: null,
 };
 
 export type Stat = { mtimeMs: number; size: number } | null;

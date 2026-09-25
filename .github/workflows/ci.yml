@@ -42,6 +42,44 @@ jobs:
           path: docs/acceptance/report.md
           if-no-files-found: ignore
 
+  # irori-host, the remote-files server (server/): the script under the oldest and a current
+  # Node, then the standalone binary built for this runner, on all three platforms.
+  host:
+    name: irori-host · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64-baseline
+          - os: macos-latest
+            target: darwin-arm64
+          - os: windows-latest
+            target: windows-x64-baseline
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 18
+      - name: Script, Node 18
+        run: node --test tests/host/irori-host.test.mjs
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Script, Node 22
+        run: node --test tests/host/irori-host.test.mjs
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Binary
+        shell: bash
+        run: |
+          bun build --compile --target=bun-${{ matrix.target }} server/irori-host.mjs --outfile irori-host-bin
+          bin=irori-host-bin
+          [[ -f irori-host-bin.exe ]] && bin=irori-host-bin.exe
+          IRORI_HOST_CMD=$bin node --test tests/host/irori-host.test.mjs
+
   # The shell. macOS is the only platform verified by hand, but the code is
   # compiled on all three from day one so the three-platform goal stays honest.
   shell:

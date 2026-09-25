@@ -2,14 +2,24 @@
    from a temporary folder; the app reaches it the way the desktop app does, over HTTP.
    A window is local or remote for its whole life; the list is what the command line shared,
    pushed live; only shared files can be written; an unreachable server never turns a remote
-   window into a local one. */
+   window into a local one; the pictures registered with a shared file show, and a pasted one is
+   added; an Irori the server does not trust yet is shown the command that trusts it, and gets
+   in as soon as it has run. What the server refuses is tested on its own in tests/host/. */
 import { spawn, spawnSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { MOD, ROOT, docText, setDoc, sleep } from '../harness.mjs';
 
 const CLI = path.join(ROOT, 'server/irori-host.mjs');
+
+/** A key pair as Irori keeps it (settings.remoteKey), and the public key `trust` takes. */
+function makeKey() {
+  const jwk = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey.export({ format: 'jwk' });
+  const raw = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]);
+  return { jwk, pub: 'irori-p256.' + raw.toString('base64url') };
+}
 
 /** A server with its own registry and a folder of files; `share` runs the real command line. */
 async function startHost() {
@@ -42,6 +52,14 @@ async function startHost() {
       return p;
     },
     share: (...args) => cli('share', ...args),
+    trust: (key) => cli('trust', key),
+    untrust: (key) => cli('untrust', key),
+    /** a key this server already trusts, for pages that boot straight into a remote window */
+    trusted: () => {
+      const k = makeKey();
+      cli('trust', k.pub);
+      return k.jwk;
+    },
     unshare: (...args) => cli('unshare', ...args),
     stop: () => {
       proc.kill();
@@ -49,6 +67,9 @@ async function startHost() {
     },
   };
 }
+
+/** a 1×1 PNG */
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 
 const remoteQuery = (port, file) => `remote=${encodeURIComponent('http://127.0.0.1:' + port)}&file=${encodeURIComponent(file)}`;
 
@@ -81,7 +102,19 @@ export const cases = [
         t.ok('the panel opens on ⇧⌘O with the address field focused', await page.evaluate(() => document.activeElement?.name === 'addr'));
         await page.keyboard.type(String(host.port));
         await page.keyboard.press('Enter');
+
+        // this Irori is new to the server: it is shown the one command that trusts it
+        await until(page, () => !document.querySelector('.rpanel .rtrust').hidden);
+        t.ok('an untrusted Irori is told so', /还没有信任这台 Irori/.test(await page.$eval('.rstatus', (e) => e.textContent)));
+        t.eq('nothing is listed before it is trusted', await panelItems(page), []);
+        const cmd = await page.$eval('.rtrust input', (e) => e.value);
+        t.ok('the command carries this Irori\'s public key', /^irori-host trust irori-p256\.[\w-]{87}$/.test(cmd), cmd);
+        const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('irori.settings') || '{}').remoteKey);
+        t.ok('the key pair was made once and kept in the settings', !!saved?.d);
+        host.trust(cmd.split(' ').pop());
         await until(page, () => document.querySelectorAll('.rpanel .ritem').length === 1);
+        t.ok('once the command has run, it gets in by itself', true);
+        t.ok('the command is put away', await page.$eval('.rpanel .rtrust', (e) => e.hidden));
         t.eq('only the shared file is listed', await panelItems(page), ['a.md']);
         t.ok('the status says connected', /已连接/.test(await page.$eval('.rstatus', (e) => e.textContent)));
         t.eq('time left is shown', await page.$eval('.ritem .rleft', (e) => e.textContent), '剩 12 小时');
@@ -106,8 +139,10 @@ export const cases = [
         t.ok('the page was booted as a remote window', (await page.evaluate(() => location.search)).includes('remote='));
         t.eq('the title names the server', await page.title(), `a.md — 127.0.0.1:${host.port}`);
         t.ok('the drawer names the server too', (await page.$eval('#pathv', (e) => e.textContent)).startsWith(`127.0.0.1:${host.port} : `));
-        const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('irori.settings') || '{}').remoteAddr);
-        t.eq('the address is remembered for next time', saved, String(host.port));
+        const addr = await page.evaluate(() => JSON.parse(localStorage.getItem('irori.settings') || '{}').remoteAddr);
+        t.eq('the address is remembered for next time', addr, String(host.port));
+        const kept = await page.evaluate(() => JSON.parse(localStorage.getItem('irori.settings') || '{}').remoteKey);
+        t.eq('saving the settings kept the key', kept?.d, saved.d);
       } finally {
         host.stop();
       }
@@ -121,7 +156,7 @@ export const cases = [
       try {
         const a = host.file('a.md', '第一行');
         host.share(a);
-        const page = await ctx.open({ query: remoteQuery(host.port, a) });
+        const page = await ctx.open({ query: remoteQuery(host.port, a), settings: { remoteKey: host.trusted() } });
         await until(page, () => window.__irori.view.state.doc.length > 0);
         t.eq('the shared file opens at boot', await docText(page), '第一行');
 
@@ -155,7 +190,8 @@ export const cases = [
         const a = host.file('a.md', 'A');
         const b = host.file('b.md', 'B');
         host.share(a, b);
-        const local = await ctx.open({ files: { '/n/x.md': '本地' }, startup: '/n/x.md', settings: { remoteAddr: String(host.port) } });
+        const remoteKey = host.trusted();
+        const local = await ctx.open({ files: { '/n/x.md': '本地' }, startup: '/n/x.md', settings: { remoteAddr: String(host.port), remoteKey } });
         await local.evaluate(() => document.body.classList.add('menuopen'));
         await sleep(300);
         await local.click('#remotebtn');
@@ -167,7 +203,7 @@ export const cases = [
         t.eq('a new window was asked for, booted on the picked file', q, [remoteQuery(host.port, b)]);
         t.eq('this window keeps its own document', await docText(local), '本地');
 
-        const remote = await ctx.open({ query: remoteQuery(host.port, a) });
+        const remote = await ctx.open({ query: remoteQuery(host.port, a), settings: { remoteKey } });
         await until(remote, () => window.__irori.view.state.doc.length > 0);
         await shortcut(remote, 'o');
         await until(remote, () => document.querySelectorAll('.rpanel .ritem').length === 2);
@@ -210,6 +246,75 @@ export const cases = [
       await sleep(200);
       const disk = await win.evaluate(() => [...window.__irori.remote.host.files.keys()]);
       t.eq('nothing was written to the local disk', disk.filter((k) => k.endsWith('.md')), []);
+    },
+  },
+  {
+    id: 'B-114',
+    name: 'A remote window shows the pictures its document had when shared, and a pasted one lands beside it and shows too',
+    async run(t, ctx) {
+      const host = await startHost();
+      try {
+        // the caret starts on the heading, so the picture's line shows it
+        const doc = host.file('a.md', '# 图\n\n![](old.png)\n');
+        host.file('old.png', PNG);
+        host.share(doc);
+        const page = await ctx.open({ query: remoteQuery(host.port, doc), settings: { remoteKey: host.trusted() } });
+        await until(page, () => window.__irori.view.state.doc.length > 0);
+        await until(page, () => [...document.querySelectorAll('.cm-content img')].some((i) => i.complete && i.naturalWidth > 0));
+        t.ok('the registered picture is displayed', true);
+
+        await page.evaluate(() => {
+          const v = window.__irori.view;
+          v.focus();
+          v.dispatch({ selection: { anchor: v.state.doc.length } });
+        });
+        await page.evaluate((b64) => {
+          const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+          const dt = new DataTransfer();
+          dt.items.add(new File([bytes], 'shot.png', { type: 'image/png' }));
+          document.querySelector('.cm-content').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+        }, PNG.toString('base64'));
+        await until(page, () => window.__irori.view.state.doc.toString().includes('shot.png'));
+        await page.keyboard.press('Enter'); // off the pasted line, so it shows as a picture
+        const text = await docText(page);
+        const ref = /!\[\]\(([^)]*shot\.png)\)/.exec(text)?.[1];
+        t.ok('the paste inserted a reference', !!ref, text);
+        t.ok('the picture was written on the server side', !!ref && fs.existsSync(path.join(host.files, decodeURI(ref))), ref);
+        await until(page, () => [...document.querySelectorAll('.cm-content img')].filter((i) => i.complete && i.naturalWidth > 0).length === 2);
+        t.ok('and is displayed from there', true);
+      } finally {
+        host.stop();
+      }
+    },
+  },
+  {
+    id: 'B-115',
+    name: 'A remote window the server does not trust says which command to run; untrusting signs it out at once',
+    async run(t, ctx) {
+      const host = await startHost();
+      try {
+        const a = host.file('a.md', '内容');
+        host.share(a);
+        const k = makeKey();
+        const page = await ctx.open({ query: remoteQuery(host.port, a), settings: { remoteKey: k.jwk } });
+        await sleep(300);
+        const said = await page.$eval('#toast', (e) => e.textContent);
+        t.ok('it says the server does not trust it, and the command', said.includes('还没有信任') && said.includes('irori-host trust ' + k.pub), said);
+        t.eq('nothing was read', await docText(page), '');
+
+        host.trust(k.pub);
+        await page.reload({ waitUntil: 'load' });
+        await until(page, () => window.__irori.view.state.doc.length > 0);
+        t.eq('trusted, the same window opens the file', await docText(page), '内容');
+
+        host.untrust(k.pub);
+        await setDoc(page, '内容\n再写');
+        await sleep(1400);
+        t.eq('untrusted, nothing more is written', fs.readFileSync(a, 'utf8'), '内容');
+        t.ok('the reason is shown', /还没有信任/.test(await page.$eval('#toast', (e) => e.textContent)), await page.$eval('#toast', (e) => e.textContent));
+      } finally {
+        host.stop();
+      }
     },
   },
 ];

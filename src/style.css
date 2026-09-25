@@ -371,4 +371,12 @@ body.menuopen .drawer{transform:translateX(0);}
 .ritem.missing .rname{color:#b0a696;text-decoration:line-through;}
 .rempty{font-size:12px;color:var(--sub);padding:14px 10px;line-height:1.8;}
 .rempty code{font-family:ui-monospace,Menlo,monospace;background:var(--accent-soft);padding:1px 5px;border-radius:5px;}
-.rhint{font-size:11px;color:#b0a696;text-align:right;margin-top:8px;}
+.rtrust{background:var(--accent-soft);border-radius:10px;padding:10px 12px;margin:0 0 8px;font-size:12px;color:var(--sub);line-height:1.6;}
+.rtrust[hidden]{display:none;}
+.rcmd{display:flex;gap:8px;margin:6px 0;}
+.rcmd .txtin{font-family:ui-monospace,Menlo,monospace;font-size:11px;padding:5px 8px;background:#fffdf9;}
+.rtrust-s{font-size:11px;color:#b0a696;}
+.rfoot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;}
+.rkey{border:0;background:none;padding:0;font:inherit;font-size:11px;color:#a89c8a;cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px;}
+.rkey:hover{color:var(--accent);}
+.rhint{font-size:11px;color:#b0a696;text-align:right;}

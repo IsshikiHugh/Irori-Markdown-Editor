@@ -5,7 +5,7 @@ import { getPlatform } from './platform';
 import { DEFAULT_IMAGE_DIR, resolveAgainst } from './platform/paths';
 import type { Platform } from './platform/types';
 import { SettingsStore } from './app/settings';
-import { remoteQuery, type RemotePlatform } from './platform/remote';
+import { identity, remoteQuery, type RemotePlatform } from './platform/remote';
 import { openRemotePanel } from './app/remote-panel';
 import { DocumentSession } from './app/document';
 import { storeImage, UnsavedDocumentError } from './app/images';
@@ -398,7 +398,9 @@ async function boot() {
   const openRemote = async (sameServer = false) => {
     document.body.classList.remove('menuopen');
     const got = await openRemotePanel(
-      sameServer && remote ? { addr: settings.value.remoteAddr, base: remote.base } : { addr: settings.value.remoteAddr },
+      sameServer && remote
+        ? { addr: settings.value.remoteAddr, base: remote.base, identity: () => identity(shell) }
+        : { addr: settings.value.remoteAddr, identity: () => identity(shell) },
     );
     if (!got) return null;
     if (got.addr !== settings.value.remoteAddr) settings.patch({ remoteAddr: got.addr });

@@ -240,10 +240,28 @@ fn load_settings(app: tauri::AppHandle) -> Option<serde_json::Value> {
 
 /// The argument is named `settings` because that is the key the page sends
 /// (`invoke('save_settings', { settings })`); Tauri matches arguments by name.
+/// Private to this user: the settings hold the key this Irori signs in to remote servers with.
 #[tauri::command]
 fn save_settings(app: tauri::AppHandle, settings: serde_json::Value) -> Res<()> {
     let file = settings_file(&app)?;
-    fs::write(file, serde_json::to_string_pretty(&settings).map_err(err)?).map_err(err)
+    let text = serde_json::to_string_pretty(&settings).map_err(err)?;
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    opts.open(&file)
+        .and_then(|mut f| f.write_all(text.as_bytes()))
+        .map_err(err)?;
+    // `mode` only applies to a new file: tighten one written by an earlier version too
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).map_err(err)?;
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]

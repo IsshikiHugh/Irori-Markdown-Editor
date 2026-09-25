@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full verification: types → unit → behaviour (headless Chromium) → Rust shell.
+# Full verification: types → unit → irori-host → behaviour (headless Chromium) → Rust shell.
 #   ./scripts/test.sh           everything
 #   ./scripts/test.sh --fast    skip Rust
 #   ./scripts/test.sh B-2       run one group of behaviour cases only
@@ -26,6 +26,9 @@ npm run typecheck
 
 echo "› unit tests"
 npx vitest run
+
+echo "› irori-host (remote files server)"
+node --test tests/host/irori-host.test.mjs
 
 echo "› build"
 npx vite build >/dev/null

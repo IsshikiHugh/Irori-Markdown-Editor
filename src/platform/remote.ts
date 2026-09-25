@@ -5,11 +5,15 @@
    stays remote; a local window never becomes one. It wraps the real host (the Tauri shell, or
    the in-memory web host): the file operations go to the server, everything else —
    confirmations, windows, settings, updates, opening links — is the host's. The writing app
-   does not know the file is elsewhere. */
+   does not know the file is elsewhere.
 
-import type { Platform, RestartReady, Settings, Stat, UpdateInfo } from './types';
+   Signing in: each Irori has its own key pair (identity, below), kept in its settings. A server
+   lets in only the public keys its owner trusted (`irori-host trust <key>`): the client signs the
+   server's one-time challenge and gets a session back, which every other request carries. */
 
-export const PROTOCOL = 2;
+import { DEFAULT_SETTINGS, type Platform, type RestartReady, type Settings, type Stat, type UpdateInfo } from './types';
+
+export const PROTOCOL = 4;
 
 /** One shared file, as the server lists it. `expiresAt` null = shared until unshared. */
 export type Share = { name: string; path: string; size: number; mtimeMs: number; missing: boolean; addedAt: number; expiresAt: number | null };
@@ -30,18 +34,87 @@ export function remoteQuery(base: string, path: string): string {
   return `remote=${encodeURIComponent(base)}&file=${encodeURIComponent(path)}`;
 }
 
-/** The handshake: the server is there and speaks our protocol. Resolves with its host name. */
-export async function hello(base: string): Promise<string> {
+/* ---------- identity ---------- */
+
+/** How a public key is written for `irori-host trust`: the P-256 point, uncompressed, base64url. */
+const KEY_PREFIX = 'irori-p256.';
+const ECDSA = { name: 'ECDSA', namedCurve: 'P-256' } as const;
+
+/** This Irori as servers know it: its public key, and a way to sign a challenge. */
+export type Identity = { key: string; sign(challenge: string): Promise<string> };
+
+const b64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64url = (s: string) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+
+async function fromJwk(jwk: JsonWebKey): Promise<Identity> {
+  const priv = await crypto.subtle.importKey('jwk', jwk, ECDSA, false, ['sign']);
+  const key = KEY_PREFIX + b64url(new Uint8Array([4, ...unb64url(jwk.x!), ...unb64url(jwk.y!)]));
+  return {
+    key,
+    async sign(challenge) {
+      const text = new TextEncoder().encode('irori-host sign-in\n' + challenge);
+      return b64url(new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, priv, text)));
+    },
+  };
+}
+
+let mine: Promise<Identity> | null = null;
+
+/** This Irori's key pair: the one in the settings, or — the first time — a new one saved there.
+    Kept for good: replacing it would lock this Irori out of every server that trusts it. */
+export function identity(host: Platform): Promise<Identity> {
+  mine ??= (async () => {
+    const saved = await host.loadSettings().catch(() => null);
+    if (saved?.remoteKey?.d) return fromJwk(saved.remoteKey);
+    const pair = await crypto.subtle.generateKey(ECDSA, true, ['sign', 'verify']);
+    const jwk = await crypto.subtle.exportKey('jwk', pair.privateKey);
+    // settings.ts keeps a key found on disk when another window writes its (older) settings
+    await host.saveSettings({ ...DEFAULT_SETTINGS, ...saved, remoteKey: jwk } as Settings);
+    return fromJwk(jwk);
+  })();
+  mine.catch(() => (mine = null));
+  return mine;
+}
+
+/* ---------- handshake ---------- */
+
+/** Why a server did not let this Irori in. `untrusted`: the key is not on its list yet — run
+    `irori-host trust <key>` there. */
+export class SignInError extends Error {
+  constructor(
+    message: string,
+    readonly reason: string,
+    readonly key: string,
+    readonly host: string,
+  ) {
+    super(message);
+  }
+}
+
+/** The handshake: the server is there, speaks our protocol, and lets this Irori in. Resolves
+    with its host name and the session every other request carries. */
+export async function signIn(base: string, me: Identity): Promise<{ host: string; session: string }> {
   let res: Response;
   try {
     res = await fetch(base + '/hello');
   } catch {
     throw new Error('连不上 ' + base);
   }
-  const v = (await res.json().catch(() => null)) as { protocol?: number; host?: string } | null;
+  const v = (await res.json().catch(() => null)) as { protocol?: number; host?: string; challenge?: string } | null;
   if (!res.ok || !v || typeof v.protocol !== 'number') throw new Error(base + ' 不是 irori-host');
-  if (v.protocol !== PROTOCOL) throw new Error(`服务端协议版本 ${v.protocol}，这个版本的 Irori 需要 ${PROTOCOL}`);
-  return v.host ?? base;
+  if (v.protocol !== PROTOCOL) throw new Error(`服务端协议版本 ${v.protocol}，这个版本的 Irori 需要 ${PROTOCOL}：两边都更新到最新版`);
+  const host = v.host ?? new URL(base).host;
+  let a: { session?: string; error?: string; auth?: string } | null;
+  try {
+    const body = JSON.stringify({ key: me.key, challenge: v.challenge, signature: await me.sign(v.challenge ?? '') });
+    const r = await fetch(base + '/auth', { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+    a = await r.json().catch(() => null);
+  } catch {
+    throw new Error('连不上 ' + base);
+  }
+  if (a?.session) return { host, session: a.session };
+  if (a?.auth === 'untrusted') throw new SignInError(`${host} 还没有信任这台 Irori：在服务端运行 irori-host trust ${me.key}`, 'untrusted', me.key, host);
+  throw new SignInError(a?.error ?? '登录失败', a?.auth ?? 'failed', me.key, host);
 }
 
 export class RemotePlatform implements Platform {
@@ -54,6 +127,9 @@ export class RemotePlatform implements Platform {
       panel lives there) */
   pickShared: () => Promise<string | null> = async () => null;
 
+  /** what the server handed out at sign-in; every request but the handshake carries it */
+  private session = '';
+
   constructor(
     readonly base: string,
     readonly host: Platform,
@@ -64,7 +140,9 @@ export class RemotePlatform implements Platform {
   }
 
   async connect(): Promise<void> {
-    this.hostName = await hello(this.base);
+    const r = await signIn(this.base, await identity(this.host));
+    this.hostName = r.host;
+    this.session = r.session;
   }
 
   /** how the window names where its file is: the address itself (forwarded ports all say
@@ -74,17 +152,23 @@ export class RemotePlatform implements Platform {
   }
 
   private url(route: string, path: string) {
-    return this.base + route + '?path=' + encodeURIComponent(path);
+    return this.base + route + '?path=' + encodeURIComponent(path) + '&s=' + encodeURIComponent(this.session);
   }
 
-  private async call<T>(method: string, route: string, path: string, body?: BodyInit): Promise<T> {
+  private async call<T>(method: string, route: string, path: string, body?: BodyInit, again = true): Promise<T> {
     let res: Response;
     try {
       res = await fetch(this.url(route, path), { method, body });
     } catch {
       throw new Error('连不上 ' + this.label);
     }
-    const data = (await res.json().catch(() => null)) as (T & { error?: string }) | null;
+    const data = (await res.json().catch(() => null)) as (T & { error?: string; auth?: string }) | null;
+    // not signed in (the server was not answering at boot, or its owner trusted this Irori only
+    // since): sign in and try once more; still out → say why
+    if (res.status === 401 && data?.auth && again) {
+      await this.connect();
+      return this.call(method, route, path, body, false);
+    }
     if (!res.ok) throw new Error(data?.error ?? `${res.status} ${route}`);
     return data as T;
   }
@@ -106,8 +190,10 @@ export class RemotePlatform implements Platform {
     const s = await this.call<{ mtimeMs: number; size: number } | null>('GET', '/stat', path);
     return s ? { mtimeMs: s.mtimeMs, size: s.size } : null;
   }
-  async listDir(path: string) {
-    return (await this.call<{ name: string }[]>('GET', '/list', path)).map((e) => e.name);
+  /** The server lists no folders (only registered files can be seen): a pasted picture's name is
+      found by createBinary refusing the taken ones instead. */
+  async listDir(_path: string) {
+    return [];
   }
   assetUrl(path: string) {
     return this.url('/asset', path);
