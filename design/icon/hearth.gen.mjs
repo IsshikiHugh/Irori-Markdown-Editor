@@ -2,8 +2,11 @@
  *   node design/icon/hearth.gen.mjs && node design/icon/render.mjs out/hearth-round.svg
  *
  * Emits two versions that share the same geometry and differ only in two corner radii:
- *   out/hearth.svg        square-cornered (RS = RG = 0)
- *   out/hearth-round.svg  rounded ← final
+ *   out/hearth.svg           square-cornered (RS = RG = 0)
+ *   out/hearth-round.svg     rounded ← final
+ * plus two variants of the rounded one (UNLIT and ANIMATED at the bottom):
+ *   out/hearth-unlit.svg     the fire is out: no embers, no smoke — just a deeper pit
+ *   out/hearth-animated.svg  the embers breathe and the smoke drifts (SMIL, no script)
  * out/ is entirely git-ignored: anything one command can regenerate doesn't belong in version
  * control. The published copies live in assets/logo/.
  *
@@ -66,10 +69,52 @@ export const DEFAULTS = {
   SCALE: 2.08,
   CX: 256,
   CY: 280,
-  SMOKE: null, // smoke color; null = the editor's --tok (source-marker color)
+  SMOKE: null, // smoke color; null = the editor's --tok (source-marker color); false = no smoke at all
   FLOOR: null, // hearth floor color; null = the default ash color
   FIRE: true, // whether the center cell is burning; false = just a deeper pit
   BG: false, // whether to paint the paper background; off by default, left to the consumer
+  ANIM: false, // false = still image; an object (see ANIM below) = the embers breathe and the smoke drifts
+};
+
+/* ── Animation ─────────────────────────────────────────────
+ * Two motions, both declarative SMIL so the file stays a plain SVG that plays inside <img> (GitHub
+ * READMEs included) with no script and no CSS:
+ *
+ *   embers   the pit floor and the pit walls swap between the ember color and a dimmer shade of the
+ *            same hue. One cycle holds two breaths of different depth so it doesn't tick like a
+ *            metronome. Nothing else changes: the fire stays the mark's only saturated color.
+ *   smoke    every sample of the centerline is displaced sideways by a sine wave that travels from
+ *            the embers up to the tip, so the whole plume undulates like a wave being sent out of
+ *            the hearth; the band is re-lofted for every frame and the frames are handed to
+ *            <animate attributeName="d">.
+ *            The still S is scaled down to BASE under the wave, so the plume really changes
+ *            direction; the still d attribute stays in place, so a renderer that ignores SMIL shows
+ *            the published logo.
+ *
+ * Why displace the centerline and not transform the path: a rigid skew/translate would swing the
+ * whole plume including its root, and the root has to stay planted in the embers. The displacement
+ * is applied per sample (not per Bezier joint: four joints are far too coarse to show a wave), and
+ * the band's normals are taken from the displaced curve, so the band stays smooth.
+ *
+ * The two periods are deliberately different (3.5 s vs 5.1 s) so the fire and the smoke drift in and
+ * out of step instead of locking into one beat. */
+export const ANIM = {
+  FRAMES: 24, //  keyframes per smoke loop; linear interpolation in between
+  SMOKE_DUR: 3.5, // seconds per smoke loop
+  AMP: 10, //     wave amplitude, world units (≈ 21 px @512, ≈ 5 px @128). Larger than the still S's
+  //              own bends, so the plume really swings from side to side instead of rippling on the S
+  PIN: 0.12, //   fraction of the plume, from the root, over which the wave fades in (plants the foot)
+  BASE: 0.3, //   how much of the still S is kept under the wave (0 = a pure sine on a vertical axis)
+  //              The tip keeps the still mark's hook and width profile in every frame, so the moving
+  //              plume is the published smoke, just swaying (see hookFrame)
+  WAVE: 1.15, //  wavelengths along the plume. Above ~1.3 the bends get tighter than the band is wide and its inner edge folds into a kink
+  ROOT: 0.6, //   amplitude grows from the root as s^ROOT; well below 1, so the whole plume waves and
+  //              only the root itself is pinned to the embers
+  FIRE_DUR: 5.1, // seconds per ember cycle (two breaths)
+  EMBER_DIM: '#CF7F2E', // embers at the bottom of a deep breath
+  EMBER_DIM2: '#E2953F', // …of the shallow one
+  PWALL_DIM: '#6B3211', // pit walls, lit from below, follow with a smaller swing
+  PWALL_DIM2: '#753815',
 };
 
 /* Isometric projection: +x goes down-right, +y down-left, +z up. The camera looks from the
@@ -270,9 +315,11 @@ export function build(o = {}) {
   const { R, B, G, A, OUT, H, D1, D2, RS, RF, RG, GAP, TIP, FIL, WMAX, SCALE, CX, CY, BG } = { ...DEFAULTS, ...o };
   const spine = o.SPINE || SPINE;
   const smokeFill = o.SMOKE || SMOKE;
+  const hasSmoke = o.SMOKE !== false;
+  const anim = o.ANIM ? { ...ANIM, ...(o.ANIM === true ? {} : o.ANIM) } : null;
   const floorFill = o.FLOOR || FLOOR;
   const pitFill = o.FIRE === false ? GROOVE : (o.EMBER || EMBER);
-  const pitWall = o.FIRE === false ? GWALL : PWALL;
+  const pitWall = o.FIRE === false ? GWALL : (o.PWALL || PWALL);
   const F = R - B; //   half-width of the hearth floor
   // Concentric shrink: the outer arc of radius RS moves in by B, so the inner radius is RS - B.
   // Otherwise the black rim would be noticeably narrower at the four corners than along the
@@ -416,10 +463,41 @@ export function build(o = {}) {
     const u = 1 - t;
     return [0, 1].map((i) => u ** 3 * p0[i] + 3 * u * u * t * p1[i] + 3 * u * t * t * p2[i] + t ** 3 * p3[i]);
   };
-  const spineAt = (t) => {
-    const segs = (spine.length - 1) / 3;
+  const spineAt = (t, sp = spine) => {
+    const segs = (sp.length - 1) / 3;
     const s = Math.min(Math.floor(t * segs), segs - 1);
-    return bez(spine[s * 3], spine[s * 3 + 1], spine[s * 3 + 2], spine[s * 3 + 3], t * segs - s);
+    return bez(sp[s * 3], sp[s * 3 + 1], sp[s * 3 + 2], sp[s * 3 + 3], t * segs - s);
+  };
+  /* Normalized arc length of the still centerline at parameter t. The Bezier parameter is not
+     arc length: the last of the three segments is the short hook at the tip, yet it owns a third of
+     t. A wave written in t is therefore squeezed into that hook — half a wavelength inside a few
+     world units — which is what made the top of the plume look scrambled. Written in arc length,
+     the hook sees only a sliver of phase and rides the wave as one piece. */
+  const ARC = (() => {
+    const K = 200, cum = [0];
+    let prev = spineAt(0);
+    for (let i = 1; i <= K; i++) {
+      const p = spineAt(i / K);
+      cum.push(cum[i - 1] + Math.hypot(p[0] - prev[0], p[1] - prev[1]));
+      prev = p;
+    }
+    return (t) => {
+      const x = Math.min(Math.max(t, 0), 1) * K, i = Math.min(Math.floor(x), K - 1);
+      return (cum[i] + (cum[i + 1] - cum[i]) * (x - i)) / cum[K];
+    };
+  })();
+  /* Sideways displacement of the centerline at parameter t (0 = embers, 1 = tip) for one animation
+     frame; `phase` runs 0 → 1 over a loop. A sine travelling toward the tip along the arc length u,
+     with amplitude growing as u^ROOT so the root stays put. In the animation the plume sweeps
+     across the rim's far corner every loop (the still mark's clearance rule, see SPINE, holds for
+     the still only); the smoke is drawn on top, so it covers the corner rather than being
+     skewered by it. check.mjs verifies the plume swings to both sides and the root stays pinned. */
+  const drift = (t, phase, a = anim) => {
+    const u = ARC(t);
+    // u^ROOT alone has an infinite slope at the root, so the plume's foot would slide sideways out of
+    // the embers; a smoothstep over the first PIN of the length damps that and plants the foot.
+    const k = Math.min(u / a.PIN, 1), pin = k * k * (3 - 2 * k);
+    return a.AMP * u ** a.ROOT * pin * Math.sin(2 * Math.PI * (phase - a.WAVE * u));
   };
   // Zero at both ends, peaking at about 40% (it swells faster at the start than it tapers at the
   // end, which is what makes it read as rising)
@@ -436,13 +514,21 @@ export function build(o = {}) {
     }
     return d + 'Z';
   };
-  const smoke = (N = 46) => {
+  /* `dx` is an optional sideways displacement of the centerline, dx(t) in world units (an animation
+     frame). The sample count is fixed, so every frame's path has the same command sequence — which is
+     what <animate attributeName="d"> requires. Only the centerline moves; the width profile is the
+     still one in every frame. Normals come from the displaced curve, so the band follows the wave. */
+  const smoke = (N = 46, dx = null, sp = spine) => {
     const L = [], Rt = [];
+    const at = (t) => {
+      const p = spineAt(t, sp);
+      return dx ? [p[0] + dx(t), p[1]] : p;
+    };
     for (let i = 0; i <= N; i++) {
       const t = i / N;
-      const p = spineAt(t);
-      const [qx, qy] = spineAt(Math.min(t + 1e-3, 1));
-      const [rx, ry] = spineAt(Math.max(t - 1e-3, 0));
+      const p = at(t);
+      const [qx, qy] = at(Math.min(t + 1e-3, 1));
+      const [rx, ry] = at(Math.max(t - 1e-3, 0));
       const len = Math.hypot(qx - rx, qy - ry) || 1;
       const nx = -(qy - ry) / len, ny = (qx - rx) / len;
       const w = width(t) / 2;
@@ -462,6 +548,64 @@ export function build(o = {}) {
   const openD = face(openRing); //        igeta opening (z = 0)
   const pitD = face(pitRing, -D1); //     hearth pit mouth (z = -D1)
 
+  /* SMIL fragments. All empty when not animating, and a path without a child stays self-closing, so
+     the still mark's markup is untouched. */
+  const P = (d, fill, inner) => `<path d="${d}" fill="${fill}"${inner ? `>${inner}</path>` : '/>'}`;
+  const ease = '0.42 0 0.58 1'; // ease-in-out, one per interval
+  const breathe = (bright, deep, shallow) =>
+    anim && o.FIRE !== false
+      ? `\n      <animate attributeName="fill" values="${bright};${deep};${bright};${shallow};${bright}" keyTimes="0;0.3;0.55;0.8;1" calcMode="spline" keySplines="${ease};${ease};${ease};${ease}" dur="${anim.FIRE_DUR}s" repeatCount="indefinite"/>\n    `
+      : '';
+  /* The centerline of one animation frame, before the wave is added.
+     The body (first two Bezier segments) is the still S scaled down to BASE, so the wave dominates
+     and the plume changes direction; at BASE = 1 it would only ripple on a fixed S.
+     The hook (third segment) keeps the still mark's shape and length but turns with the plume:
+     it curls back against the lean just below it, like the still one does. `dir` is that lean,
+     normalized by its largest value over the loop on the same side (the scaled-down S biases the
+     lean to one side; one shared maximum left the hook only half curled on the other) — linear,
+     not saturated. A saturating curve
+     (tanh) made dir cross zero in a few frames and the hook whipped across like a tail; linear, the
+     hook turns at the same pace as the wave that drives it. Its sideways offset is scaled by dir
+     (mirrored when negative) and its drop by dir², so it passes smoothly through a straight
+     upward tip of the same length while turning. Width is the still profile throughout: every
+     frame is the published smoke, bent. */
+  const leanAt = (phase) => {
+    const X = (t) => anim.BASE * spineAt(t)[0] + drift(t, phase);
+    return -(X(2 / 3) - X(0.5));
+  };
+  const hookFrame = (phase, leanMax) => {
+    const a = anim;
+    const lean = leanAt(phase);
+    const dir = lean / (lean > 0 ? leanMax.pos : leanMax.neg);
+    const [h0, h1, h2, h3] = spine.slice(-4); // hook: starts with a vertical tangent at h0
+    let hookLen = 0;
+    for (let i = 1, prev = h0; i <= 40; i++) {
+      const q = bez(h0, h1, h2, h3, i / 40);
+      hookLen += Math.hypot(q[0] - prev[0], q[1] - prev[1]);
+      prev = q;
+    }
+    // Straight tip as long as the hook, so the width tapers over the same length (a shorter one
+    // ended in a blunt, slanted wedge)
+    const straight = [0, 1, 2, 3].map((k) => h0[1] - (hookLen * k) / 3);
+    const x0 = a.BASE * h0[0];
+    const hook = [h0, h1, h2, h3].map((p, i) => [x0 + dir * (p[0] - h0[0]), straight[i] + dir * dir * (p[1] - straight[i])]);
+    return [...spine.slice(0, -4).map((p) => [a.BASE * p[0], p[1]]), ...hook];
+  };
+  const smokeFrames = () => {
+    if (!anim) return '';
+    const frames = [];
+    const leanMax = { pos: 1e-9, neg: 1e-9 };
+    for (let f = 0; f < 240; f++) {
+      const l = leanAt(f / 240);
+      if (l > 0) leanMax.pos = Math.max(leanMax.pos, l);
+      else leanMax.neg = Math.max(leanMax.neg, -l);
+    }
+    for (let f = 0; f <= anim.FRAMES; f++) {
+      const phase = f / anim.FRAMES; // last frame == first, so the loop closes seamlessly
+      frames.push(smoke(46, (t) => drift(t, phase), hookFrame(phase, leanMax)));
+    }
+    return `\n    <animate attributeName="d" values="${frames.join(';')}" dur="${anim.SMOKE_DUR}s" repeatCount="indefinite"/>\n  `;
+  };
 
   // Same canvas as irori.svg: 1024 square with coordinates still in 512 (scaled by viewBox), so render.mjs captures it full-frame
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 512 512" role="img" aria-label="囲炉裏">
@@ -498,14 +642,15 @@ ${BG ? `\n  <rect id="bg" width="512" height="512" fill="#F4F0E6"/>\n` : ''}
     <path d="${face(openRing, -D1)}" fill="${GROOVE}"/>
     ${wallRuns(openRing, false).map((r) => `<path d="${band(runPts(openRing, r), 0, D1)}" fill="${GWALL}"/>`).join('\n    ')}
     <g clip-path="url(#pit)">
-      <path d="${face(pitRing, -D1 - D2)}" fill="${pitFill}"/>
-      ${wallRuns(pitRing, false).map((r) => `<path d="${band(runPts(pitRing, r), -D1, D2)}" fill="${pitWall}"/>`).join('\n      ')}
+      ${P(face(pitRing, -D1 - D2), pitFill, breathe(pitFill, anim?.EMBER_DIM, anim?.EMBER_DIM2))}
+      ${wallRuns(pitRing, false).map((r) => P(band(runPts(pitRing, r), -D1, D2), pitWall, breathe(pitWall, anim?.PWALL_DIM, anim?.PWALL_DIM2))).join('\n      ')}
     </g>
   </g>
-
+${hasSmoke ? `
   <!-- Smoke is drawn last: it rises from the hearth's center and is closer to the camera than the
        rim's farthest corner, so it rightly covers that corner -->
-  <path d="${smoke()}" fill="${smokeFill}"/>
+  ${P(smoke(), smokeFill, smokeFrames())}` : `
+  <!-- Unlit: no smoke -->`}
 </svg>
 `;
 }
@@ -515,10 +660,18 @@ ${BG ? `\n  <rect id="bg" width="512" height="512" fill="#F4F0E6"/>\n` : ''}
    to bulge and the four-stroke structure blurs. */
 export const ROUND = { RS: 16, RG: 3 };
 
+/* Variants of the final (rounded) mark. Same geometry, only what happens in the pit differs:
+     UNLIT     the fire is going out — no smoke any more, and the embers are down to a last dark-red
+               glow: the pit floor keeps a dim red, the walls only a trace of warmth. Six colors.
+     ANIMATED  embers breathe, smoke waves (see ANIM). Stripped of its <animate> children it is
+               byte-identical to the still mark. */
+export const UNLIT = { ...ROUND, SMOKE: false, EMBER: '#7A2F19', PWALL: '#3E2419' };
+export const ANIMATED = { ...ROUND, ANIM: true };
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   const out = path.join(here, 'out');
   fs.mkdirSync(out, { recursive: true });
-  for (const [file, opts] of [['hearth.svg', {}], ['hearth-round.svg', ROUND]]) {
+  for (const [file, opts] of [['hearth.svg', {}], ['hearth-round.svg', ROUND], ['hearth-unlit.svg', UNLIT], ['hearth-animated.svg', ANIMATED]]) {
     fs.writeFileSync(path.join(out, file), build(opts));
     console.log('› out/' + file);
   }
