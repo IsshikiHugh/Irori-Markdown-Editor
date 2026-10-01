@@ -19,7 +19,7 @@
 
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import type { DecorationSet, ViewUpdate } from '@codemirror/view';
-import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
+import { EditorSelection, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
 import type { EditorState, Extension, Range } from '@codemirror/state';
 import {
   codeLineDeco,
@@ -82,6 +82,13 @@ export const hoverHighlight: Extension = [
     },
   }),
 ];
+
+/** A click on a rendered block puts the caret at `pos` — or, ⌥-clicked, adds a caret there. */
+function placeCaret(view: EditorView, pos: number, e: MouseEvent) {
+  const selection =
+    e.altKey && !e.shiftKey ? view.state.selection.addRange(EditorSelection.cursor(pos)) : EditorSelection.single(pos);
+  view.dispatch({ selection, userEvent: 'select' });
+}
 
 /* ---------- image widget ---------- */
 
@@ -174,7 +181,7 @@ class TableWidget extends WidgetType {
       }
       const cell = (e.target as HTMLElement).closest<HTMLElement>('[data-off]');
       const pos = view.posAtDOM(row) + Number(cell?.dataset.off ?? 0);
-      view.dispatch({ selection: { anchor: pos }, userEvent: 'select' });
+      placeCaret(view, pos, e);
       view.focus();
     });
     return row;
@@ -214,7 +221,7 @@ class MathWidget extends WidgetType {
     row.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
-      view.dispatch({ selection: { anchor: view.posAtDOM(row) + this.at }, userEvent: 'select' });
+      placeCaret(view, view.posAtDOM(row) + this.at, e);
       view.focus();
     });
     return row;
@@ -244,7 +251,7 @@ class InlineMathWidget extends WidgetType {
     span.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
-      view.dispatch({ selection: { anchor: view.posAtDOM(span) + this.open }, userEvent: 'select' });
+      placeCaret(view, view.posAtDOM(span) + this.open, e);
       view.focus();
     });
     return span;
@@ -252,6 +259,12 @@ class InlineMathWidget extends WidgetType {
   override ignoreEvent(e: Event) {
     return e.type === 'mousedown'; // handled above
   }
+}
+
+/** The lines every caret and selection end is on, as one comparable key. */
+function rangeLines(state: EditorState): string {
+  const doc = state.doc;
+  return state.selection.ranges.map((r) => doc.lineAt(r.anchor).number + ':' + doc.lineAt(r.head).number).join(',');
 }
 
 /** Lines the caret (or a selection) touches: those always show source. */
@@ -346,12 +359,8 @@ const blockField = StateField.define<Blocks>({
     if (tr.effects.some((e) => e.is(mathLoaded))) return buildBlocks(tr.state);
     if (!tr.docChanged && !tr.selection) return blocks;
     if (tr.selection && !tr.docChanged) {
-      // only matters when the caret moved to a different line
-      const before = tr.startState.doc.lineAt(tr.startState.selection.main.head).number;
-      const after = tr.state.doc.lineAt(tr.state.selection.main.head).number;
-      const beforeAnchor = tr.startState.doc.lineAt(tr.startState.selection.main.anchor).number;
-      const afterAnchor = tr.state.doc.lineAt(tr.state.selection.main.anchor).number;
-      if (before === after && beforeAnchor === afterAnchor) return blocks;
+      // only matters when a caret (any of them) moved to a different line
+      if (rangeLines(tr.startState) === rangeLines(tr.state)) return blocks;
     }
     return buildBlocks(tr.state);
   },
@@ -402,9 +411,9 @@ function build(view: EditorView): DecorationSet {
   const doc = state.doc;
   const live = caretLines(state);
   const hovered = state.field(hoverLine, false);
-  // the current-line highlight follows the caret itself (the head of the main range),
-  // exactly like the blog editor's updateActiveLine()
-  const anchorLine = doc.lineAt(state.selection.main.head).number;
+  // the current-line highlight follows the caret itself (the head of each range), exactly like the
+  // blog editor's updateActiveLine() — with several carets, every line one is on
+  const caretRows = new Set(state.selection.ranges.map((r) => doc.lineAt(r.head).number));
   const { tables, fences, maths } = state.field(blockField);
   const touches = (from: number, to: number) => state.selection.ranges.some((r) => r.from <= to && r.to >= from);
   // syntax colours, one parse per code block on screen
@@ -441,7 +450,7 @@ function build(view: EditorView): DecorationSet {
         const part = lineNo === fence.from ? 'open' : fence.closed && lineNo === fence.to ? 'close' : 'body';
         const deco = codeLineDeco(text, part);
         const cls = ['ln', deco.lineClass];
-        if (lineNo === anchorLine) cls.push('aline');
+        if (caretRows.has(lineNo)) cls.push('aline');
         if (hovered === line.from) cls.push('mhover');
         out.push(Decoration.line({ class: cls.join(' ') }).range(line.from));
         for (const m of deco.marks) out.push(Decoration.mark({ class: m.cls }).range(line.from + m.from, line.from + m.to));
@@ -455,7 +464,7 @@ function build(view: EditorView): DecorationSet {
         if (![...live].some((k) => k >= math.from && k <= math.to)) continue; // rendered by blockField
         const deco = mathLineDeco(text, math, lineNo);
         const cls = ['ln', deco.lineClass];
-        if (lineNo === anchorLine) cls.push('aline');
+        if (caretRows.has(lineNo)) cls.push('aline');
         if (hovered === line.from) cls.push('mhover');
         out.push(Decoration.line({ class: cls.join(' ') }).range(line.from));
         for (const m of deco.marks) out.push(Decoration.mark({ class: m.cls }).range(line.from + m.from, line.from + m.to));
@@ -473,7 +482,7 @@ function build(view: EditorView): DecorationSet {
       if (hit.member) cls.push('quote');
       if (hit.lazy) cls.push('qlazy');
       if (asImage) cls.push('imgrow');
-      if (lineNo === anchorLine) cls.push('aline');
+      if (caretRows.has(lineNo)) cls.push('aline');
       if (hovered === line.from) cls.push('mhover');
       out.push(Decoration.line({ class: cls.join(' '), attributes: style ? { style } : undefined }).range(line.from));
 

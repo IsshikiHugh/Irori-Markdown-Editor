@@ -33,7 +33,7 @@ function atEdge(view: EditorView, down: boolean): boolean {
 function step(view: EditorView, dir: 1 | -1, requireEdge: boolean): boolean {
   const state = view.state;
   const range = state.selection.main;
-  if (!range.empty) return false;
+  if (!range.empty || state.selection.ranges.length > 1) return false; // several carets: plain motion
   const line = state.doc.lineAt(range.head);
   const targetNo = line.number + dir;
   if (!isBlock(state, targetNo)) return false;

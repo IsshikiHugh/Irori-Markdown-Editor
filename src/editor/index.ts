@@ -6,7 +6,7 @@
    a thin extension on top of one. That is the whole point of building on CodeMirror: the
    fragile, engine-dependent work happens in a core that is tested across engines, not here. */
 
-import { EditorView, drawSelection, dropCursor, keymap, rectangularSelection } from '@codemirror/view';
+import { EditorView, drawSelection, dropCursor, keymap } from '@codemirror/view';
 import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo } from '@codemirror/commands';
@@ -18,6 +18,7 @@ import { imageNavKeymap } from './image-nav';
 import { continueList } from './lists';
 import { selectBlockThenAll } from './select-block';
 import { linkClicks, setLinkOpener } from './links';
+import { multiCursor } from './multi-cursor';
 
 export type EditorHooks = {
   onChange: (doc: string) => void;
@@ -151,7 +152,7 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
         // "double blink". The caret's fade is left entirely to CSS (style.css: caretfade).
         drawSelection({ cursorBlinkRate: 0 }),
         dropCursor(),
-        rectangularSelection(),
+        multiCursor,
         search({ top: false }),
         zh,
         sourceDecoration,
@@ -178,6 +179,11 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
           {
             key: 'Escape',
             run: (v) => {
+              // several carets: Esc first brings them back to one (the main one)
+              if (v.state.selection.ranges.length > 1) {
+                v.dispatch({ selection: EditorSelection.create([v.state.selection.main]), userEvent: 'select' });
+                return true;
+              }
               closeSearchPanel(v);
               hooks.onEscape();
               return true;
@@ -193,7 +199,6 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
           if (u.docChanged) hooks.onChange(u.state.doc.toString());
           if (u.docChanged || u.selectionSet) hooks.onUpdate(u.docChanged, u.selectionSet);
         }),
-        EditorState.allowMultipleSelections.of(false),
       ],
     }),
   });

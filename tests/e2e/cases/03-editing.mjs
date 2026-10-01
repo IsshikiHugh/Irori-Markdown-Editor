@@ -251,6 +251,99 @@ export const cases = [
     },
   },
   {
+    id: 'B-103',
+    name: 'Several carets: ⌥-click adds one, a middle-button (or ⌥⇧) drag makes a column of them under the pointer, Esc goes back to one',
+    async run(t, ctx) {
+      const md = ['第一行文字', 'second line here', 'third line here too', 'x', 'fifth line of text', '', '- 项目一', '- 项目二', '', '![](a.png)', '', '结尾'].join('\n');
+      const page = await ctx.open({ files: { '/n/a.md': md }, startup: '/n/a.md' });
+      await sleep(200);
+      const sel = () =>
+        page.evaluate(() => {
+          const v = window.__irori.view;
+          return v.state.selection.ranges.map((r) => [v.state.doc.lineAt(r.head).number, r.anchor - v.state.doc.lineAt(r.anchor).from, r.head - v.state.doc.lineAt(r.head).from]);
+        });
+      const at = (n, col) =>
+        page.evaluate(
+          (n, col) => {
+            const v = window.__irori.view;
+            const c = v.coordsAtPos(v.state.doc.line(n).from + col);
+            return { x: c.left + 1, y: (c.top + c.bottom) / 2 };
+          },
+          n,
+          col,
+        );
+      let p = await at(2, 3);
+      await page.mouse.click(p.x, p.y);
+      p = await at(3, 5);
+      await page.keyboard.down('Alt');
+      await page.mouse.click(p.x, p.y);
+      await page.keyboard.up('Alt');
+      await sleep(80);
+      t.eq('⌥-click adds a caret', await sel(), [[2, 3, 3], [3, 5, 5]]);
+      t.eq('both are drawn, both lines highlighted', await page.evaluate(() => [document.querySelectorAll('.cm-cursor').length, document.querySelectorAll('.cm-line.aline').length]), [2, 2]);
+      await page.keyboard.type('Z');
+      t.eq('typing goes in at every caret', (await docText(page)).split('\n').slice(1, 3), ['secZond line here', 'thirdZ line here too']);
+      await page.keyboard.press('Escape');
+      t.eq('Esc: back to one caret, the last one added', await sel(), [[3, 6, 6]]);
+
+      // a middle-button drag straight down: one caret per line, each right under the pointer
+      const a = await at(1, 2);
+      const z = await at(5, 2);
+      await page.mouse.move(a.x, a.y);
+      await page.mouse.down({ button: 'middle' });
+      await page.mouse.move(a.x, z.y, { steps: 5 });
+      await page.mouse.up({ button: 'middle' });
+      const col = await page.evaluate(() => {
+        const v = window.__irori.view;
+        return v.state.selection.ranges.map((r) => ({ empty: r.empty, x: Math.round(v.coordsAtPos(r.head).left) }));
+      });
+      t.eq('five carets', col.length, 5);
+      t.ok('all empty', col.every((c) => c.empty), JSON.stringify(col));
+      t.ok('each under the pointer (the short line: at its end)', col.filter((_, i) => i !== 3).every((c) => Math.abs(c.x - a.x) < 12), `${a.x} ${JSON.stringify(col)}`);
+      // dragged across: one range per line
+      const z2 = await at(5, 8);
+      await page.mouse.move(a.x, a.y);
+      await page.mouse.down({ button: 'middle' });
+      await page.mouse.move(z2.x, z2.y, { steps: 5 });
+      await page.mouse.up({ button: 'middle' });
+      const box = await sel();
+      t.ok('a strip of every line is selected', box.length === 5 && box.filter((_, i) => i !== 3).every(([, f, h]) => h > f), JSON.stringify(box));
+      // the same with ⌥⇧ and the left button (a trackpad has no middle one)
+      await page.keyboard.press('Escape');
+      await page.keyboard.down('Alt');
+      await page.keyboard.down('Shift');
+      await page.mouse.move(a.x, a.y);
+      await page.mouse.down();
+      await page.mouse.move(z2.x, z2.y, { steps: 5 });
+      await page.mouse.up();
+      await page.keyboard.up('Shift');
+      await page.keyboard.up('Alt');
+      t.eq('⌥⇧-drag does the same', await sel(), box);
+      t.eq('the text is untouched by selecting', (await docText(page)).split('\n')[4], 'fifth line of text');
+
+      // Enter with a caret on each of two list items continues both lists
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        const S = v.state.selection.constructor;
+        v.dispatch({ selection: S.create([S.cursor(v.state.doc.line(7).to), S.cursor(v.state.doc.line(8).to)], 1) });
+        v.focus();
+      });
+      await page.keyboard.press('Enter');
+      await sleep(60);
+      t.eq('each list continues', (await docText(page)).split('\n').slice(6, 10), ['- 项目一', '- ', '- 项目二', '- ']);
+      // a second caret on the picture line turns it into source, like the first would
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        const S = v.state.selection.constructor;
+        let n = 1;
+        while (!v.state.doc.line(n).text.startsWith('![')) n++;
+        v.dispatch({ selection: S.create([S.cursor(0), S.cursor(v.state.doc.line(n).from + 1)], 0) });
+      });
+      await sleep(100);
+      t.ok('a secondary caret shows the picture line as source', await page.evaluate(() => !document.querySelector('.cm-content .imgwrap')), '');
+    },
+  },
+  {
     id: 'B-102',
     name: '⌘A in a code or math block selects what is between its fences first, the whole document on the second press',
     async run(t, ctx) {
