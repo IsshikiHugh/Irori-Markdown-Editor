@@ -118,6 +118,10 @@ export function createTypewriter(
     return typewriterPads(height, anchorPct(height));
   }
 
+  /** the state a switch still gliding towards it will land in (null: none under way) */
+  let switching: boolean | null = null;
+  let switchFrame = 0;
+
   /* ---- following the caret ---- */
   let pending = 0;
   /** run `fn` as soon as no glide is in flight (never drop it: typing right after a jump must
@@ -150,7 +154,7 @@ export function createTypewriter(
 
   /** bring the caret's row to the anchor now (the switch, and the landing check after a glide) */
   function followNow(afterGlide = false) {
-    if (!isOn()) return;
+    if (!isOn() || switching === false) return; // going off: the row is on its way elsewhere
     // a glide is already carrying the view somewhere: re-aim once it lands rather than fighting it
     // frame by frame (the same rule focus mode follows)
     if (glide.running()) {
@@ -174,7 +178,7 @@ export function createTypewriter(
       further move inside the window replaces this one — the wait starts over. */
   let delayTimer: ReturnType<typeof setTimeout> | null = null;
   function follow() {
-    if (!isOn()) return;
+    if (!isOn() || switching === false) return;
     if (delayTimer) clearTimeout(delayTimer);
     delayTimer = setTimeout(() => {
       delayTimer = null;
@@ -267,18 +271,34 @@ export function createTypewriter(
     save();
   }
   function setOn(on: boolean) {
+    cancelAnimationFrame(switchFrame);
+    switching = null;
     const target = on ? null : offTarget();
     if (target == null) {
+      // (also a click back while still on the way out: the mode simply stays on, the row returns)
       swap(on);
       return;
     }
     // the row cannot keep its height: move it there first, then swap (see offTarget)
     reflectSeg(on); // the switch answers the click at once; the padding follows the animation
+    switching = on;
     glide.to(target);
-    whenIdle(() => swap(on));
+    // its own wait, not whenIdle(): that one is shared with following, and a follow already
+    // waiting there would swallow this swap — the switch would read "off" with the mode still on
+    const land = () => {
+      if (glide.running()) {
+        switchFrame = requestAnimationFrame(land);
+        return;
+      }
+      switchFrame = 0;
+      switching = null;
+      swap(on);
+    };
+    switchFrame = requestAnimationFrame(land);
   }
 
-  els.seg.onclick = () => setOn(!isOn());
+  // a second click while the switch is still on its way acts on where it is going, not where it was
+  els.seg.onclick = () => setOn(!(switching ?? isOn()));
   els.slider.oninput = () => {
     apply();
     if (isOn()) showGuide();

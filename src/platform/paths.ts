@@ -72,10 +72,12 @@ export function imageRef(docPath: string, dir: string, fileName: string): string
   return relativeTo(dirname(docPath), join(dir, fileName));
 }
 
-/** Resolve a markdown image src against the document's folder. Absolute/remote → null. */
+/** Resolve a markdown image src against the document's folder. Remote → null; an absolute path
+    is already resolved (imageRef writes one for a folder on another drive). */
 export function resolveAgainst(docPath: string, src: string): string | null {
   if (!src) return null;
   if (/^(https?:|data:|file:)/i.test(src)) return null;
+  if (isAbsolute(normalize(src))) return normalize(src);
   const base = dirname(docPath);
   const parts = normalize(src).split('/');
   const out = normalize(base).split('/');

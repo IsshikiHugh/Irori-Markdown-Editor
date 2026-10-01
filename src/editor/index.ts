@@ -36,6 +36,8 @@ export type EditorHooks = {
 };
 
 const fontCompartment = new Compartment();
+const historyCompartment = new Compartment();
+const HISTORY = () => history({ minDepth: 200, newGroupDelay: 350 });
 const lockCompartment = new Compartment();
 
 /** Wrap the selection in `mark` (⌘B / ⌘I), or drop empty markers at the caret. */
@@ -146,7 +148,7 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
       doc,
       extensions: [
         EditorView.lineWrapping,
-        history({ minDepth: 200, newGroupDelay: 350 }),
+        historyCompartment.of(HISTORY()),
         // cursorBlinkRate: 0 — turns off CodeMirror's built-in hard on/off blink (steps(1) 1.2s).
         // That and our soft 1.15s breathing are two separate animations with slightly different
         // periods; layered, they drift further out of phase until, after a few blinks, it becomes a
@@ -213,6 +215,13 @@ export function setLocked(view: EditorView, on: boolean) {
   view.dispatch({
     effects: lockCompartment.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
   });
+}
+
+/** Forget every undo step — another file is now in the buffer, and ⌘Z must not bring back the
+    one before it. (Taking the history out and putting it back starts it afresh.) */
+export function resetHistory(view: EditorView) {
+  view.dispatch({ effects: historyCompartment.reconfigure([]) });
+  view.dispatch({ effects: historyCompartment.reconfigure(HISTORY()) });
 }
 
 /** Swap the writing font without touching the document (settings). */
