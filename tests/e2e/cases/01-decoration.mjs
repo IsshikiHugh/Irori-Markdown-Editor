@@ -733,7 +733,7 @@ export const cases = [
         sel: document.querySelector('.cm-selectionLayer').style.clipPath,
         cur: document.querySelector('.cm-cursorLayer').style.clipPath,
       }));
-      t.ok('selection and caret layers carry a clip with a hole on the hidden side', /path\(evenodd/.test(clip.sel) && clip.sel === clip.cur, clip.sel.slice(0, 80));
+      t.ok('selection and caret layers carry a clip with a hole over the pane / on its hidden side', /path\(evenodd/.test(clip.sel) && /path\(evenodd/.test(clip.cur) && clip.sel !== clip.cur, clip.sel.slice(0, 80));
 
       // ⇧-wheel scrolls the block sideways too (macOS sends it as deltaX, elsewhere deltaY)
       await page.mouse.move(box.x, box.y);
@@ -755,6 +755,138 @@ export const cases = [
         return ws;
       });
       t.eq('PDF wraps', printed, 'pre-wrap');
+    },
+  },
+  {
+    id: 'B-101',
+    name: 'Selecting in a code block that scrolls: whole rows light up wherever the pane is, a drag past the edge scrolls it, and edits keep every line in step',
+    async run(t, ctx) {
+      const long = 'const a = 1; ' + 'someIdentifier + '.repeat(10) + 'end;';
+      const md = ['正文', '', '```js', long, long, 'b()', '```', '', '结尾'].join('\n');
+      const page = await ctx.open({ files: { '/n/c.md': md }, startup: '/n/c.md' });
+      await sleep(200);
+      const pane = () =>
+        page.evaluate(() => {
+          const v = window.__irori.view;
+          const box = v.contentDOM.getBoundingClientRect();
+          const rows = [...document.querySelectorAll('.cm-codeSelection .cm-selectionBackground')].map((r) => {
+            const b = r.getBoundingClientRect();
+            return { l: Math.round(b.left - box.left), r: Math.round(b.right - box.left), y: Math.round(b.top - box.top) };
+          });
+          const xs = [...document.querySelectorAll('.cm-content > .cm-line.cb')].map((l) => Math.round(l.scrollLeft));
+          const m = v.state.selection.main;
+          return { rows, xs, w: Math.round(box.width), head: m.head, line4: v.state.doc.line(4).from };
+        });
+      // scroll the pane partway, then select from the middle of line 4 to the middle of line 6
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(4).from + 90 } });
+        v.focus();
+      });
+      await sleep(100);
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(4).from + 60, head: v.state.doc.line(6).from + 2 } });
+      });
+      await sleep(150);
+      let p = await pane();
+      t.eq('three rows drawn', p.rows.length, 3);
+      t.ok('the first row runs from the start of the selection to the right edge', p.rows[0].r === p.w && p.rows[0].l > 0, JSON.stringify(p.rows));
+      t.ok('a row selected end to end fills the pane, hidden parts and all', p.rows[1].l === 0 && p.rows[1].r === p.w, JSON.stringify(p.rows[1]));
+      t.ok('the last row runs from the left edge', p.rows[2].l === 0 && p.rows[2].r < p.w, JSON.stringify(p.rows[2]));
+      t.ok("CodeMirror's own selection is clipped out of the pane", await page.evaluate(() => /path\(evenodd/.test(document.querySelector('.cm-selectionLayer').style.clipPath)), '');
+
+      // the same selection with the pane scrolled to the far end: still whole rows
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(6).from, head: v.state.doc.line(4).to } });
+      });
+      await sleep(150);
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(4).from + 3, head: v.state.doc.line(5).to } });
+      });
+      await sleep(150);
+      p = await pane();
+      t.ok('scrolled to the end, a row whose selection starts out of sight still lights up from the left edge', p.xs[0] > 0 && p.rows.length === 2 && p.rows[0].l === 0 && p.rows[0].r === p.w && p.rows[1].l === 0, JSON.stringify(p));
+
+      // a drag past the right edge: the head stays on what shows, and the pane scrolls on its own
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(4).from } });
+      });
+      await sleep(150);
+      const L = await page.evaluate(() => {
+        const l = document.querySelectorAll('.cm-content > .cm-line.cb')[1].getBoundingClientRect();
+        return { x: l.left, y: l.top + l.height / 2, w: l.width };
+      });
+      await page.mouse.move(L.x + 40, L.y);
+      await page.mouse.down();
+      await page.mouse.move(L.x + L.w - 20, L.y, { steps: 4 });
+      await sleep(60);
+      const near = await pane();
+      await page.mouse.move(L.x + L.w + 80, L.y, { steps: 3 });
+      await sleep(400);
+      const far = await pane();
+      await page.mouse.up();
+      await sleep(60);
+      const upAt = (await pane()).xs[0];
+      await sleep(300);
+      const later = (await pane()).xs[0];
+      t.ok('and stops once the button is up', upAt === later, `${upAt} → ${later}`);
+      t.ok('at the edge nothing jumps', near.xs[0] < 40 && near.head - near.line4 < 80, JSON.stringify(near));
+      t.ok('held past the edge, the pane scrolls and the selection follows it', far.xs[0] > near.xs[0] + 50 && far.head > near.head, `${near.xs[0]}→${far.xs[0]}, head ${near.head}→${far.head}`);
+      const caretIn = await page.evaluate(() => {
+        const c = document.querySelector('.cm-cursor-primary').getBoundingClientRect();
+        const b = window.__irori.view.contentDOM.getBoundingClientRect();
+        return c.left >= b.left && c.left <= b.right;
+      });
+      t.ok('and the head is on screen', caretIn, '');
+
+      // Home / End go to the line's true ends, not to the edge of what shows
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(4).from + 50 } });
+        v.focus();
+      });
+      await page.keyboard.press('End');
+      await sleep(80);
+      t.eq('End: the end of the line', await page.evaluate(() => window.__irori.view.state.selection.main.head - window.__irori.view.state.doc.line(4).to), 0);
+      await page.keyboard.press('Home');
+      await sleep(80);
+      const home = await pane();
+      t.ok('Home: its start, and the pane is back at 0', home.head === home.line4 && home.xs[0] === 0, JSON.stringify(home));
+      await page.keyboard.down('Shift');
+      await page.keyboard.press('End');
+      await page.keyboard.up('Shift');
+      await sleep(80);
+      t.eq('⇧End selects to the end', await page.evaluate(() => { const v = window.__irori.view; const m = v.state.selection.main; return [m.from - v.state.doc.line(4).from, m.to - v.state.doc.line(4).to]; }), [0, 0]);
+
+      // edits after the pane has scrolled: every line of the block keeps the same offset
+      const inStep = async (label) => {
+        const q = await pane();
+        t.ok(label, new Set(q.xs).size === 1, q.xs.join(','));
+      };
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(4).to } });
+      });
+      await page.keyboard.down('Shift');
+      for (let i = 0; i < 40; i++) await page.keyboard.press('ArrowLeft');
+      await page.keyboard.up('Shift');
+      await page.keyboard.press('Backspace');
+      await sleep(100);
+      await inStep('after deleting a selection');
+      await page.keyboard.press('Enter');
+      await page.keyboard.type('x = 2');
+      await sleep(100);
+      await inStep('after a new line');
+      await page.keyboard.down(MOD);
+      for (let i = 0; i < 4 && (await docText(page)) !== md; i++) await page.keyboard.press('z');
+      await page.keyboard.up(MOD);
+      await sleep(100);
+      await inStep('after undo');
+      t.eq('undo brought the text back', await docText(page), md);
     },
   },
   {

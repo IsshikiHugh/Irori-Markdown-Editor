@@ -243,7 +243,9 @@ async function boot() {
     // old margins and the viewport box still marks the old span.
     () => {
       const relayout = () => minimapRef?.invalidate();
-      view.requestMeasure({ read: () => 0, write: relayout });
+      // the minimap reads the layout, which is not allowed in a measure's write phase: run it
+      // right after that phase ends instead
+      view.requestMeasure({ read: () => 0, write: () => queueMicrotask(relayout) });
       requestAnimationFrame(() => requestAnimationFrame(relayout));
       // the band moved: typewriter mode clamps its anchor into it, so the row may have to move too
       // (deferred — reading the caret's coordinates inside a measure cycle is not allowed)

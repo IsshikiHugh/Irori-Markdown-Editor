@@ -17,9 +17,9 @@
    caret costs no layout. Syntax colours change colour only, never weight or slant
    (highlight.ts), so that is exact. */
 
-import { EditorView, ViewPlugin, layer } from '@codemirror/view';
+import { EditorView, RectangleMarker, ViewPlugin, keymap, layer } from '@codemirror/view';
 import type { LayerMarker, PluginValue, ViewUpdate } from '@codemirror/view';
-import { Prec } from '@codemirror/state';
+import { EditorSelection, Prec } from '@codemirror/state';
 import type { EditorState, Extension } from '@codemirror/state';
 import { codeBlocks, codeScrolled, hoveredLine } from './decorations';
 
@@ -155,7 +155,10 @@ class CodeScroll implements PluginValue {
           this.apply();
         },
       });
-    this.apply();
+    // Before CodeMirror redraws, its DOM still shows the previous document: mapping an element to
+    // a line then is only right if the document did not change. When it did, the redraw follows and
+    // docViewUpdate writes the offsets.
+    if (!u.docChanged) this.apply();
   }
 
   docViewUpdate() {
@@ -198,7 +201,7 @@ class CodeScroll implements PluginValue {
     for (const el of view.contentDOM.querySelectorAll<HTMLElement>(':scope > .cm-line.cb')) {
       let want = 0;
       if (this.offs.size) {
-        const b = blockAt(state, state.doc.lineAt(view.posAtDOM(el)).number);
+        const b = blockAt(state, state.doc.lineAt(Math.min(view.posAtDOM(el), state.doc.length)).number);
         if (b) want = this.offs.get(keyOf(state, b)) ?? 0;
       }
       // (a new line element starts at 0; one the browser scrolled itself is put back by onScroll)
@@ -262,6 +265,113 @@ const wheel = Prec.high(
     },
   }),
 );
+
+/* ---------- Home / End ----------
+   CodeMirror's Home and End stop at the edge of what shows first (they look for wrap points by
+   probing the editor's edges) — in a pane scrolled sideways that is the middle of the line. A code
+   line never wraps, so here they go to its true ends: End to the end, Home to the end of the
+   indentation and then to the start. Outside code (any range not in a code block) CodeMirror's own run. */
+
+function lineEnds(forward: boolean, extend: boolean) {
+  return (view: EditorView): boolean => {
+    const state = view.state;
+    const doc = state.doc;
+    if (!state.selection.ranges.every((r) => blockAt(state, doc.lineAt(r.head).number))) return false;
+    const sel = EditorSelection.create(
+      state.selection.ranges.map((r) => {
+        const line = doc.lineAt(r.head);
+        let to = line.to;
+        if (!forward) {
+          const space = /^\s*/.exec(line.text)![0].length;
+          to = space && r.head !== line.from + space ? line.from + space : line.from;
+        }
+        return extend ? EditorSelection.range(r.anchor, to) : EditorSelection.cursor(to);
+      }),
+      state.selection.mainIndex,
+    );
+    view.dispatch({ selection: sel, scrollIntoView: true, userEvent: 'select' });
+    return true;
+  };
+}
+
+const keys = Prec.high(
+  keymap.of([
+    { key: 'Home', run: lineEnds(false, false), shift: lineEnds(false, true), preventDefault: true },
+    { key: 'End', run: lineEnds(true, false), shift: lineEnds(true, true), preventDefault: true },
+    { mac: 'Mod-ArrowLeft', run: lineEnds(false, false), shift: lineEnds(false, true) },
+    { mac: 'Mod-ArrowRight', run: lineEnds(true, false), shift: lineEnds(true, true) },
+  ]),
+);
+
+/* ---------- dragging a selection in a pane ----------
+   CodeMirror reads the position under the mouse. Past a pane's edge that is the margin, where it
+   finds a character in the hidden part of the line (or none), so the selection leapt out of sight.
+   Here, over a pane, the pointer is held to the pane's edges — what you select is what you see —
+   and held past an edge, the pane scrolls on its own, faster the further out, carrying the
+   selection with it (CodeMirror asks again after every scroll: update() returns true). */
+
+const mouse = EditorView.mouseSelectionStyle.of((view, start) => {
+  if (start.button !== 0 || start.detail > 1 || start.altKey || start.metaKey || start.ctrlKey) return null;
+  const cs = view.plugin(codeScrollPlugin);
+  const row = (start.target as HTMLElement | null)?.closest?.('.cm-line.cb') as HTMLElement | null;
+  if (!cs || !row) return null;
+  const startBlock = blockAt(view.state, view.state.doc.lineAt(view.posAtDOM(row)).number);
+  if (!startBlock || !maxOffset(view.state, startBlock, cs.width)) return null;
+
+  /** the pane the pointer is over, vertically, and its edges on screen */
+  const paneAt = (y: number) => {
+    const state = view.state;
+    const blk = view.lineBlockAtHeight(y - view.documentTop);
+    const b = blockAt(state, state.doc.lineAt(blk.from).number);
+    if (!b || !maxOffset(state, b, cs.width)) return null;
+    const box = view.contentDOM.getBoundingClientRect();
+    return { b, left: box.left, right: box.left + cs.width };
+  };
+  const posAt = (e: MouseEvent) => {
+    const p = paneAt(e.clientY);
+    // inside the padding, so the head is never where following the caret would move the pane
+    const x = p ? Math.max(p.left + PAD, Math.min(p.right - PAD, e.clientX)) : e.clientX;
+    return view.posAtCoords({ x, y: e.clientY }, false);
+  };
+
+  let anchor = start.shiftKey ? view.state.selection.main.anchor : posAt(start);
+  let last = start;
+  let frame = 0;
+  // CodeMirror may still ask for the selection once after the button is up: never scroll after that
+  let done = false;
+  const stop = () => {
+    done = true;
+    cancelAnimationFrame(frame);
+    frame = 0;
+  };
+  const step = () => {
+    frame = 0;
+    if (done) return;
+    const p = paneAt(last.clientY);
+    if (!p) return;
+    const lo = p.left + PAD;
+    const hi = p.right - PAD;
+    const over = last.clientX < lo ? last.clientX - lo : last.clientX > hi ? last.clientX - hi : 0;
+    if (!over) return;
+    const speed = Math.sign(over) * Math.min(48, 2 + Math.abs(over) * 0.35);
+    cs.scrollTo(p.b, cs.offsetOf(view.state, p.b) + speed);
+    frame = requestAnimationFrame(step);
+  };
+  window.addEventListener('mouseup', stop, { once: true });
+
+  return {
+    get(cur) {
+      last = cur;
+      if (!frame && !done) frame = requestAnimationFrame(step);
+      return EditorSelection.single(anchor, posAt(cur));
+    },
+    update(u) {
+      if (u.docChanged) anchor = u.changes.mapPos(anchor);
+      // the pane scrolled under a mouse that held still: ask again
+      return u.transactions.some((t) => t.effects.some((e) => e.is(codeScrolled) && e.value));
+    },
+  };
+});
 
 /* ---------- the slit layer: slits, their shadows, the scrollbar; clipping the other layers ---------- */
 
@@ -339,14 +449,17 @@ class SlitMarker implements LayerMarker {
   }
 }
 
-/** Not drawn: clips the selection and caret layers at the block's edges, so nothing hidden shows in the margin. */
+/** Not drawn: clips CodeMirror's selection layer out of every pane that scrolls (selectionLayer below
+    draws the selection there instead), and its caret layer at the panes' edges, so nothing hidden
+    shows in the margin. */
 class ClipMarker implements LayerMarker {
   constructor(
     readonly scroller: HTMLElement,
-    readonly path: string,
+    readonly sel: string,
+    readonly cur: string,
   ) {}
   eq(o: ClipMarker) {
-    return o.path === this.path && o.scroller === this.scroller;
+    return o.sel === this.sel && o.cur === this.cur && o.scroller === this.scroller;
   }
   draw() {
     const dom = document.createElement('div');
@@ -360,37 +473,58 @@ class ClipMarker implements LayerMarker {
     return dom.classList.contains('cbclip');
   }
   private apply() {
-    const clip = this.path ? `path(evenodd, "M-1000000 -1000000H1000000V100000000H-1000000Z${this.path}")` : '';
-    for (const el of this.scroller.querySelectorAll<HTMLElement>(':scope > .cm-selectionLayer, :scope > .cm-cursorLayer'))
-      el.style.clipPath = clip;
+    const clip = (holes: string) =>
+      holes ? `path(evenodd, "M-1000000 -1000000H1000000V100000000H-1000000Z${holes}")` : '';
+    const sel = this.scroller.querySelector<HTMLElement>(':scope > .cm-selectionLayer');
+    const cur = this.scroller.querySelector<HTMLElement>(':scope > .cm-cursorLayer');
+    if (sel) sel.style.clipPath = clip(this.sel);
+    if (cur) cur.style.clipPath = clip(this.cur);
   }
 }
 
-function markers(view: EditorView): LayerMarker[] {
-  const cs = view.plugin(codeScrollPlugin);
-  const scroller = view.scrollDOM;
-  if (!cs) return [new ClipMarker(scroller, '')];
+/** A pane on screen that scrolls, in layer coordinates (the scroller's content box, like
+    CodeMirror's own layers). */
+type Pane = { b: Block; at: number; max: number; off: number; top: number; height: number };
+type Panes = { left: number; width: number; panes: Pane[]; toLayer: (clientX: number) => number; top0: number };
+
+function panesOf(view: EditorView, cs: CodeScroll): Panes {
   const state = view.state;
   const doc = state.doc;
-  const out: LayerMarker[] = [];
-  let holes = '';
+  const scroller = view.scrollDOM;
   const rect = scroller.getBoundingClientRect();
-  const left = view.contentDOM.getBoundingClientRect().left - rect.left + scroller.scrollLeft;
+  const toLayer = (x: number) => x - rect.left + scroller.scrollLeft;
+  const left = toLayer(view.contentDOM.getBoundingClientRect().left);
   const top0 = view.documentTop - rect.top + scroller.scrollTop;
   const width = cs.width;
   const first = doc.lineAt(view.viewport.from).number;
   const last = doc.lineAt(view.viewport.to).number;
-  const hover = hoveredLine(state);
-  const hoverNo = hover == null ? -1 : doc.lineAt(hover).number;
+  const panes: Pane[] = [];
   for (const b of codeBlocks(state)) {
     if (b.to < first) continue;
     if (b.from > last) break;
     const max = maxOffset(state, b, width);
     if (!max) continue;
     const at = keyOf(state, b);
-    const off = Math.min(max, cs.offs.get(at) ?? 0);
     const top = top0 + view.lineBlockAt(at).top;
     const height = top0 + view.lineBlockAt(doc.line(b.to).from).bottom - top;
+    panes.push({ b, at, max, off: Math.min(max, cs.offs.get(at) ?? 0), top, height });
+  }
+  return { left, width, panes, toLayer, top0 };
+}
+
+function markers(view: EditorView): LayerMarker[] {
+  const cs = view.plugin(codeScrollPlugin);
+  const scroller = view.scrollDOM;
+  if (!cs) return [new ClipMarker(scroller, '', '')];
+  const state = view.state;
+  const doc = state.doc;
+  const out: LayerMarker[] = [];
+  let band = '';
+  let sides = '';
+  const { left, width, panes } = panesOf(view, cs);
+  const hover = hoveredLine(state);
+  const hoverNo = hover == null ? -1 : doc.lineAt(hover).number;
+  for (const { b, at, max, off, top, height } of panes) {
     const l = off > 0;
     const r = off < max;
     const track = width - 2 * PAD;
@@ -398,11 +532,66 @@ function markers(view: EditorView): LayerMarker[] {
     const thumbX = Math.round(((track - thumbW) * off) / max);
     const hot = cs.isHot(at) || (hoverNo >= b.from && hoverNo <= b.to);
     out.push(new SlitMarker(at, left, top, width, height, l, r, hot, thumbX, thumbW));
-    if (l) holes += `M-1000000 ${top}H${left}V${top + height}H-1000000Z`;
-    if (r) holes += `M${left + width} ${top}H1000000V${top + height}H${left + width}Z`;
+    band += `M-1000000 ${top}H1000000V${top + height}H-1000000Z`;
+    if (l) sides += `M-1000000 ${top}H${left}V${top + height}H-1000000Z`;
+    if (r) sides += `M${left + width} ${top}H1000000V${top + height}H${left + width}Z`;
   }
-  return [new ClipMarker(scroller, holes), ...out];
+  return [new ClipMarker(scroller, band, sides), ...out];
 }
+
+/* ---------- the selection inside a pane that scrolls ----------
+   CodeMirror finds where a line starts and ends on screen by probing the editor's left and right
+   edges — right for wrapped text, wrong for a line scrolled sideways: it takes the part that shows
+   for the whole line, so a selection there is drawn only over what was visible. Here each line is
+   simply a row: the part of every range on it, from its start (or the row's left edge, if it began
+   on an earlier line) to its end (or the right edge, if it runs on), cut to the pane. */
+
+function selectionMarkers(view: EditorView): LayerMarker[] {
+  const cs = view.plugin(codeScrollPlugin);
+  const sel = view.state.selection;
+  if (!cs || sel.ranges.every((r) => r.empty)) return [];
+  const doc = view.state.doc;
+  const { left, width, panes, toLayer, top0 } = panesOf(view, cs);
+  const right = left + width;
+  const out: LayerMarker[] = [];
+  const first = doc.lineAt(view.viewport.from).number;
+  const last = doc.lineAt(view.viewport.to).number;
+  for (const { b, off } of panes) {
+    for (let n = Math.max(b.from, first); n <= Math.min(b.to, last); n++) {
+      const line = doc.line(n);
+      let row: { top: number; height: number } | null = null;
+      for (const r of sel.ranges) {
+        if (r.empty || r.to < line.from || r.from > line.to) continue;
+        if (r.to === line.from && r.from < line.from) continue; // ends where this row begins
+        const xAt = (pos: number) => {
+          const c = view.coordsAtPos(pos, 1);
+          return c ? toLayer(c.left) : left + PAD + textWidth(line.text.slice(0, pos - line.from)) - off;
+        };
+        const x0 = Math.max(left, r.from <= line.from ? left : xAt(r.from));
+        const x1 = Math.min(right, r.to > line.to ? right : xAt(r.to));
+        if (x1 - x0 < 0.5) continue;
+        row ??= (() => {
+          const blk = view.lineBlockAt(line.from);
+          return { top: top0 + blk.top, height: blk.height };
+        })();
+        out.push(new RectangleMarker('cm-selectionBackground', x0, row.top, x1 - x0, row.height));
+      }
+    }
+  }
+  return out;
+}
+
+const selectionLayer = layer({
+  above: false,
+  class: 'cm-codeSelection',
+  markers: selectionMarkers,
+  update: (u) =>
+    u.docChanged ||
+    u.selectionSet ||
+    u.viewportChanged ||
+    u.geometryChanged ||
+    u.transactions.some((t) => t.effects.some((e) => e.is(codeScrolled))),
+});
 
 const slits = layer({
   above: true,
@@ -450,7 +639,7 @@ const slits = layer({
   },
 });
 
-export const codeScroll: Extension = [codeScrollPlugin, wheel, slits];
+export const codeScroll: Extension = [codeScrollPlugin, wheel, mouse, keys, slits, selectionLayer];
 
 /** Scroll the code block line `n` (1-based) is in to `x` (clamped) — for the smoke probe. */
 export function scrollCodeBlock(view: EditorView, n: number, x: number): boolean {

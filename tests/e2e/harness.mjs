@@ -87,6 +87,13 @@ export async function openApp(browser, { files = {}, images = {}, startup = null
   const page = await browser.newPage();
   await page.setViewport(viewport || { width: 1440, height: 900 });
   page.on('pageerror', (e) => console.log('   [page error] ' + e.message));
+  // CodeMirror catches an extension that throws, logs it and carries on without it — the editor
+  // keeps working but subtly wrong, so print what it logs
+  page.on('console', async (m) => {
+    if (m.type() !== 'error' || m.text().startsWith('Failed to load resource')) return; // missing pictures are part of some cases
+    const stack = await m.args()[0]?.evaluate((e) => e?.stack).catch(() => null);
+    console.log('   [console error] ' + (stack || m.text()));
+  });
   await page.evaluateOnNewDocument(
     (seed) => {
       window.__iroriSeed = seed;
