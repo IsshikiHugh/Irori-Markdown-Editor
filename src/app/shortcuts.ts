@@ -55,9 +55,10 @@ addEventListener('keydown', (e) => {
   } else if (k === 'o' && !e.shiftKey) {
     e.preventDefault();
     void (async () => {
-      const p = await doc.openDialog();
+      // KaTeX is waited for before the switch, not after it: the buffer must take the new text in
+      // the same step the session takes the new path (document.ts: open)
+      const p = await doc.openDialog(mathReady);
       if (p) {
-        await mathReady(doc.text);
         setBuffer(doc.text);
         toast('已打开 ' + doc.name);
       }
