@@ -36,6 +36,10 @@ export function createTOC(
   focusEditor: () => void,
 ) {
   let heads: Heading[] = [];
+  /** A heading's position as of now: the list is rebuilt a moment after an edit (main.ts), and a
+      scroll in between (deleting the end of the text scrolls) must not ask for a position past
+      the end of the shorter document — CodeMirror throws on that. */
+  const at = (h: Heading) => Math.min(h.pos, view.state.doc.length);
 
   function rebuild() {
     heads = scanHeadings(view.state.doc);
@@ -49,7 +53,7 @@ export function createTOC(
       a.onclick = (e) => {
         e.preventDefault();
         // glide there instead of teleporting: the same ease-in/ease-out curve (features/glide.ts)
-        glide.to(() => view.lineBlockAt(h.pos).top + view.documentPadding.top - 20);
+        glide.to(() => view.lineBlockAt(at(h)).top + view.documentPadding.top - 20);
         focusEditor();
       };
       li.appendChild(a);
@@ -62,7 +66,7 @@ export function createTOC(
     const line = spyLine();
     let idx = -1;
     heads.forEach((h, i) => {
-      const y = view.documentTop + view.lineBlockAt(h.pos).top;
+      const y = view.documentTop + view.lineBlockAt(at(h)).top;
       if (y <= line) idx = i;
     });
     list.querySelectorAll('.toc-link').forEach((a, i) => a.classList.toggle('active', i === idx));

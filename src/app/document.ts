@@ -36,6 +36,10 @@ export class DocumentSession {
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private watchTimer: ReturnType<typeof setInterval> | null = null;
   private asking = false;
+  /** writes under way: the watcher must not take our own write for someone else's */
+  private saving = 0;
+  /** the text the last write put on disk */
+  private written = '';
   /** waiting for the external-change question to be answered */
   private decided: (() => void)[] = [];
 
@@ -78,6 +82,7 @@ export class DocumentSession {
 
   async open(path: string) {
     const text = await this.platform.readText(path);
+    if (this.saveTimer) clearTimeout(this.saveTimer);
     this.path = path;
     this.text = text;
     this.diskText = text;
@@ -93,6 +98,8 @@ export class DocumentSession {
   async openDialog(): Promise<string | null> {
     const p = await this.platform.openDialog();
     if (!p) return null;
+    // the file shown now is about to be replaced: its unsaved edits are kept the way closing keeps them
+    if (!(await this.requestClose('这份文档还没有保存过，打开别的文件就会丢失。确定打开吗？'))) return null;
     await this.open(p);
     return p;
   }
@@ -106,36 +113,61 @@ export class DocumentSession {
     }
     if (!this.path || this.missing) return this.saveAs();
     if (!this.dirty) return true;
-    this.events.onState('saving');
     try {
-      await this.platform.writeText(this.path, this.text);
-      this.diskText = this.text;
-      this.diskMtime = (await this.platform.stat(this.path))?.mtimeMs ?? Date.now();
-      this.dirty = false;
-      this.events.onState('saved');
-      return true;
+      await this.write(this.path);
     } catch (err) {
       this.events.onState('dirty');
       this.events.onToast('保存失败：' + (err as Error).message);
       return false;
     }
+    this.settle();
+    return true;
   }
 
   async saveAs(): Promise<boolean> {
     const suggested = this.path ? basename(this.path) : '未命名.md';
     const target = await this.platform.saveDialog(suggested);
     if (!target) return false;
+    try {
+      await this.write(target);
+    } catch (err) {
+      // nothing was written: the document keeps the path it had
+      this.events.onState('dirty');
+      this.events.onToast('保存失败：' + (err as Error).message);
+      return false;
+    }
     this.path = target;
     this.missing = false;
     this.events.onPath(target, false);
-    this.events.onState('saving');
-    await this.platform.writeText(target, this.text);
-    this.diskText = this.text;
-    this.diskMtime = (await this.platform.stat(target))?.mtimeMs ?? Date.now();
-    this.dirty = false;
-    this.events.onState('saved');
     this.startWatch();
+    this.settle();
     return true;
+  }
+
+  /** Write the text as it is now to `path`; it becomes what is on disk. */
+  private async write(path: string) {
+    const text = this.text;
+    this.saving++;
+    this.events.onState('saving');
+    try {
+      await this.platform.writeText(path, text);
+      this.diskMtime = (await this.platform.stat(path))?.mtimeMs ?? Date.now();
+      this.diskText = text;
+      this.written = text;
+    } finally {
+      this.saving--;
+    }
+  }
+
+  /** After a write: what was typed while it was under way is not in the file — it stays dirty
+      (and autosave picks it up again) instead of being marked saved. */
+  private settle() {
+    if (this.text === this.written) {
+      this.dirty = false;
+      this.events.onState('saved');
+    } else {
+      this.setText(this.text);
+    }
   }
 
   /* ---------- external changes ---------- */
@@ -150,7 +182,7 @@ export class DocumentSession {
   }
 
   async checkDisk() {
-    if (!this.path || this.asking) return;
+    if (!this.path || this.asking || this.saving) return;
     const st = await this.platform.stat(this.path);
     if (!st) {
       if (!this.missing) {
@@ -166,6 +198,8 @@ export class DocumentSession {
     }
     if (st.mtimeMs === this.diskMtime) return;
     const disk = await this.platform.readText(this.path);
+    // a save started while this was reading: its own mtime is the one to compare with next time
+    if (this.saving) return;
     this.diskMtime = st.mtimeMs;
     if (disk === this.text) {
       this.diskText = disk;
@@ -213,7 +247,7 @@ export class DocumentSession {
   }
 
   /** window is closing: true = may close */
-  async requestClose(): Promise<boolean> {
+  async requestClose(ask = '这份文档还没有保存过，关闭就会丢失。确定关闭吗？'): Promise<boolean> {
     await this.whenDecided();
     if (!this.dirty) return true;
     if (this.path && !this.missing) {
@@ -222,7 +256,8 @@ export class DocumentSession {
     }
     // an unnamed buffer only lives in memory (by design) — so closing really would
     // throw it away, and that has to be an explicit answer, not a silent no-op
-    return this.platform.confirm('这份文档还没有保存过，关闭就会丢失。确定关闭吗？');
+    if (this.text.trim() === '') return true; // a blank page has nothing to lose
+    return this.platform.confirm(ask);
   }
 
   /** the app is restarting into an update: true = this window may go. A named file is saved in

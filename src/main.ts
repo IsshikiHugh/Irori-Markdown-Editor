@@ -1,13 +1,14 @@
 /* Wiring. Everything interesting lives in the modules; this file is the assembly. */
 
 import { EditorView } from '@codemirror/view';
+import { Transaction } from '@codemirror/state';
 import { getPlatform } from './platform';
 import { DEFAULT_IMAGE_DIR, resolveAgainst } from './platform/paths';
 import type { Platform } from './platform/types';
 import { SettingsStore } from './app/settings';
 import { DocumentSession } from './app/document';
 import { storeImage, UnsavedDocumentError } from './app/images';
-import { applyFont, createEditor, setLocked } from './editor';
+import { applyFont, createEditor, resetHistory, setLocked } from './editor';
 import { onLanguageLoaded } from './editor/highlight';
 import { mathReady, onMathLoaded } from './editor/math';
 import { createTOC } from './features/toc';
@@ -56,7 +57,10 @@ async function boot() {
       all survive an external edit that appended one line somewhere else. */
   const setBuffer = (text: string, keepCaret = false) => {
     const cur = view.state.doc.toString();
-    if (cur === text) return;
+    if (cur === text) {
+      if (!keepCaret) resetHistory(view);
+      return;
+    }
     suppressChange = true;
     if (keepCaret) {
       let p = 0;
@@ -68,16 +72,22 @@ async function boot() {
         cur[cur.length - 1 - suffix] === text[text.length - 1 - suffix]
       )
         suffix++;
+      // not an undo step of its own: ⌘Z takes back the person's own edits, never the other
+      // program's (undoing it would then autosave over the file it just wrote)
       view.dispatch({
         changes: { from: p, to: cur.length - suffix, insert: text.slice(p, text.length - suffix) },
         scrollIntoView: false,
+        annotations: Transaction.addToHistory.of(false),
       });
     } else {
       view.dispatch({
         changes: { from: 0, to: cur.length, insert: text },
         selection: { anchor: 0 },
         scrollIntoView: false,
+        annotations: Transaction.addToHistory.of(false),
       });
+      // another file: ⌘Z must not bring back the text of the one before (or the blank page)
+      resetHistory(view);
       view.scrollDOM.scrollTop = 0;
     }
     suppressChange = false;
@@ -369,6 +379,7 @@ async function boot() {
   };
   fontin.onchange = () => {
     settings.patch({ fontFamily: fontin.value.trim() || settings.value.fontFamily });
+    reflectSettings(); // a cleared field shows the font that is still in use, not a blank
     applyFont(view, settings.value.fontFamily);
     minimap.layout();
     // line heights just changed under the caret

@@ -41,6 +41,12 @@ describe('paths', () => {
     expect(resolveAgainst('/n/sub/笔记.md', '../up.png')).toBe('/n/up.png');
   });
 
+  it('keeps an absolute src as it is — the one a pasted image gets across drives included', () => {
+    expect(resolveAgainst('/n/sub/a.md', '/pics/x.png')).toBe('/pics/x.png');
+    expect(resolveAgainst('C:/docs/a.md', 'D:\\imgs\\x.png')).toBe('D:/imgs/x.png');
+    expect(resolveAgainst('C:/docs/a.md', imageRef('C:/docs/a.md', 'D:/imgs', 'x.png'))).toBe('D:/imgs/x.png');
+  });
+
   it('leaves remote and data urls alone', () => {
     expect(resolveAgainst('/n/a.md', 'https://x/y.png')).toBeNull();
     expect(resolveAgainst('/n/a.md', 'data:image/png;base64,AA')).toBeNull();
