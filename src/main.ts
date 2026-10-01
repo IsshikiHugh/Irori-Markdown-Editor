@@ -405,8 +405,7 @@ async function boot() {
   const startup = await platform.startupPath();
   if (startup) {
     try {
-      const text = await doc.open(startup);
-      await mathReady(text);
+      const text = await doc.open(startup, mathReady);
       setBuffer(text);
     } catch (err) {
       toast('打开失败：' + (err as Error).message);

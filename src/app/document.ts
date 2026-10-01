@@ -38,6 +38,12 @@ export class DocumentSession {
   private asking = false;
   /** writes under way: the watcher must not take our own write for someone else's */
   private saving = 0;
+  /** writes started so far: a watcher check that saw one start while it was reading stands down */
+  private writes = 0;
+  /** bumped whenever another file is opened: late results for the one before are dropped */
+  private epoch = 0;
+  /** the write in progress, which the next one waits for */
+  private queue: Promise<unknown> = Promise.resolve();
   /** the text the last write put on disk */
   private written = '';
   /** waiting for the external-change question to be answered */
@@ -80,28 +86,61 @@ export class DocumentSession {
 
   /* ---------- open / save ---------- */
 
-  async open(path: string) {
+  /** Open `path`. `prepare` runs on the text before anything here changes (the editor waits for
+      KaTeX with it), so the document switches over in one step, with no await between this
+      session taking the new path and the caller putting the new text in the buffer: a key
+      pressed in that gap would otherwise be the old text, saved over the new file. */
+  async open(path: string, prepare?: (text: string) => Promise<void>) {
     const text = await this.platform.readText(path);
+    const mtime = (await this.platform.stat(path))?.mtimeMs ?? 0;
+    await prepare?.(text);
+    this.adopt(path, text, mtime);
+    return text;
+  }
+
+  /** the switch itself — synchronous on purpose (see open) */
+  private adopt(path: string, text: string, mtime: number) {
     if (this.saveTimer) clearTimeout(this.saveTimer);
+    this.epoch++;
     this.path = path;
     this.text = text;
     this.diskText = text;
-    this.diskMtime = (await this.platform.stat(path))?.mtimeMs ?? 0;
+    this.diskMtime = mtime;
     this.dirty = false;
     this.missing = false;
     this.events.onPath(path, false);
     this.events.onState('saved');
     this.startWatch();
-    return text;
   }
 
-  async openDialog(): Promise<string | null> {
+  /** ⌘O. The current document's unsaved edits are kept the way closing keeps them: a buffer that
+      only lives in memory is asked about BEFORE the file picker, a named one is saved once the new
+      file is ready to show (so nothing typed in between is left out). Null if nothing was opened. */
+  async openDialog(prepare?: (text: string) => Promise<void>): Promise<string | null> {
+    if (this.dirty && !this.flushable() && !(await this.confirmDiscard('打开别的文件'))) return null;
     const p = await this.platform.openDialog();
     if (!p) return null;
-    // the file shown now is about to be replaced: its unsaved edits are kept the way closing keeps them
-    if (!(await this.requestClose('这份文档还没有保存过，打开别的文件就会丢失。确定打开吗？'))) return null;
-    await this.open(p);
+    const text = await this.platform.readText(p);
+    const mtime = (await this.platform.stat(p))?.mtimeMs ?? 0;
+    await prepare?.(text);
+    if (this.dirty && this.flushable()) {
+      await this.save();
+      if (this.dirty) return null; // it could not be saved (the reason was shown): keep it on screen
+    }
+    this.adopt(p, text, mtime);
     return p;
+  }
+
+  /** unsaved edits here can be saved in place, without asking where */
+  private flushable() {
+    return !!this.path && !this.missing;
+  }
+
+  /** Ask before throwing away a buffer that cannot be saved in place. `doing`: what would lose it. */
+  private confirmDiscard(doing: string): Promise<boolean> {
+    if (!this.path && this.text.trim() === '') return Promise.resolve(true); // a blank page has nothing to lose
+    const why = this.path ? '这份文档的文件已不存在' : '这份文档还没有保存过';
+    return this.platform.confirm(`${why}，${doing}就会丢失。确定${doing}吗？`);
   }
 
   /** ⌘S. A buffer with no path asks where to go first. Returns false if cancelled. */
@@ -114,7 +153,7 @@ export class DocumentSession {
     if (!this.path || this.missing) return this.saveAs();
     if (!this.dirty) return true;
     try {
-      await this.write(this.path);
+      if (!(await this.write(this.path))) return true;
     } catch (err) {
       this.events.onState('dirty');
       this.events.onToast('保存失败：' + (err as Error).message);
@@ -129,7 +168,7 @@ export class DocumentSession {
     const target = await this.platform.saveDialog(suggested);
     if (!target) return false;
     try {
-      await this.write(target);
+      if (!(await this.write(target))) return true;
     } catch (err) {
       // nothing was written: the document keeps the path it had
       this.events.onState('dirty');
@@ -144,19 +183,29 @@ export class DocumentSession {
     return true;
   }
 
-  /** Write the text as it is now to `path`; it becomes what is on disk. */
-  private async write(path: string) {
-    const text = this.text;
+  /** Write the text to `path`; it becomes what is on disk. Writes run one after another, each with
+      the text as it is when its turn comes — two at once (autosave and ⌘S) could otherwise land
+      out of order and leave the older text in the file. False when another file was opened while
+      it was being written: the result then belongs to a document no longer shown. */
+  private write(path: string): Promise<boolean> {
+    const epoch = this.epoch;
     this.saving++;
+    this.writes++;
     this.events.onState('saving');
-    try {
+    const run = this.queue.then(async () => {
+      if (epoch !== this.epoch) return false;
+      const text = this.text;
       await this.platform.writeText(path, text);
-      this.diskMtime = (await this.platform.stat(path))?.mtimeMs ?? Date.now();
+      const mtime = (await this.platform.stat(path))?.mtimeMs ?? Date.now();
+      if (epoch !== this.epoch) return false;
+      this.diskMtime = mtime;
       this.diskText = text;
       this.written = text;
-    } finally {
-      this.saving--;
-    }
+      return true;
+    });
+    const done = run.finally(() => this.saving--);
+    this.queue = done.catch(() => false);
+    return done;
   }
 
   /** After a write: what was typed while it was under way is not in the file — it stays dirty
@@ -183,7 +232,14 @@ export class DocumentSession {
 
   async checkDisk() {
     if (!this.path || this.asking || this.saving) return;
-    const st = await this.platform.stat(this.path);
+    // what this check reads is only about the file as it was when it started: if one of our own
+    // writes (or another file being opened) came in between, it is stale and the next tick decides
+    const path = this.path;
+    const writes = this.writes;
+    const epoch = this.epoch;
+    const stale = () => this.saving > 0 || this.writes !== writes || this.epoch !== epoch || this.path !== path;
+    const st = await this.platform.stat(path);
+    if (stale()) return;
     if (!st) {
       if (!this.missing) {
         this.missing = true;
@@ -197,9 +253,8 @@ export class DocumentSession {
       this.events.onPath(this.path, false);
     }
     if (st.mtimeMs === this.diskMtime) return;
-    const disk = await this.platform.readText(this.path);
-    // a save started while this was reading: its own mtime is the one to compare with next time
-    if (this.saving) return;
+    const disk = await this.platform.readText(path);
+    if (stale()) return;
     this.diskMtime = st.mtimeMs;
     if (disk === this.text) {
       this.diskText = disk;
@@ -247,17 +302,16 @@ export class DocumentSession {
   }
 
   /** window is closing: true = may close */
-  async requestClose(ask = '这份文档还没有保存过，关闭就会丢失。确定关闭吗？'): Promise<boolean> {
+  async requestClose(): Promise<boolean> {
     await this.whenDecided();
     if (!this.dirty) return true;
-    if (this.path && !this.missing) {
+    if (this.flushable()) {
       await this.save();
       return !this.dirty;
     }
     // an unnamed buffer only lives in memory (by design) — so closing really would
     // throw it away, and that has to be an explicit answer, not a silent no-op
-    if (this.text.trim() === '') return true; // a blank page has nothing to lose
-    return this.platform.confirm(ask);
+    return this.confirmDiscard('关闭');
   }
 
   /** the app is restarting into an update: true = this window may go. A named file is saved in
