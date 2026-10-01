@@ -482,7 +482,7 @@ class ClipMarker implements LayerMarker {
   }
 }
 
-/** A pane on screen that scrolls, in layer coordinates (the scroller's content box, like
+/** A code block on screen (it scrolls if `max` > 0), in layer coordinates (the scroller's content box, like
     CodeMirror's own layers). */
 type Pane = { b: Block; at: number; max: number; off: number; top: number; height: number };
 type Panes = { left: number; width: number; panes: Pane[]; toLayer: (clientX: number) => number; top0: number };
@@ -503,7 +503,6 @@ function panesOf(view: EditorView, cs: CodeScroll): Panes {
     if (b.to < first) continue;
     if (b.from > last) break;
     const max = maxOffset(state, b, width);
-    if (!max) continue;
     const at = keyOf(state, b);
     const top = top0 + view.lineBlockAt(at).top;
     const height = top0 + view.lineBlockAt(doc.line(b.to).from).bottom - top;
@@ -525,6 +524,8 @@ function markers(view: EditorView): LayerMarker[] {
   const hover = hoveredLine(state);
   const hoverNo = hover == null ? -1 : doc.lineAt(hover).number;
   for (const { b, at, max, off, top, height } of panes) {
+    band += `M-1000000 ${top}H1000000V${top + height}H-1000000Z`;
+    if (!max) continue;
     const l = off > 0;
     const r = off < max;
     const track = width - 2 * PAD;
@@ -532,19 +533,19 @@ function markers(view: EditorView): LayerMarker[] {
     const thumbX = Math.round(((track - thumbW) * off) / max);
     const hot = cs.isHot(at) || (hoverNo >= b.from && hoverNo <= b.to);
     out.push(new SlitMarker(at, left, top, width, height, l, r, hot, thumbX, thumbW));
-    band += `M-1000000 ${top}H1000000V${top + height}H-1000000Z`;
     if (l) sides += `M-1000000 ${top}H${left}V${top + height}H-1000000Z`;
     if (r) sides += `M${left + width} ${top}H1000000V${top + height}H${left + width}Z`;
   }
   return [new ClipMarker(scroller, band, sides), ...out];
 }
 
-/* ---------- the selection inside a pane that scrolls ----------
+/* ---------- the selection in a code block ----------
    CodeMirror finds where a line starts and ends on screen by probing the editor's left and right
    edges — right for wrapped text, wrong for a line scrolled sideways: it takes the part that shows
-   for the whole line, so a selection there is drawn only over what was visible. Here each line is
-   simply a row: the part of every range on it, from its start (or the row's left edge, if it began
-   on an earlier line) to its end (or the right edge, if it runs on), cut to the pane. */
+   for the whole line, so a selection there was drawn only over what had been visible. And it runs a
+   selected line out to the edges, padding included. Here each code line is simply a row: the part
+   of every range on it, over the text only, cut to the pane. (CodeMirror's own selection is clipped
+   out of every code block on screen: ClipMarker.) */
 
 function selectionMarkers(view: EditorView): LayerMarker[] {
   const cs = view.plugin(codeScrollPlugin);
@@ -567,8 +568,10 @@ function selectionMarkers(view: EditorView): LayerMarker[] {
           const c = view.coordsAtPos(pos, 1);
           return c ? toLayer(c.left) : left + PAD + textWidth(line.text.slice(0, pos - line.from)) - off;
         };
-        const x0 = Math.max(left, r.from <= line.from ? left : xAt(r.from));
-        const x1 = Math.min(right, r.to > line.to ? right : xAt(r.to));
+        // the text only, never the padding either side; a selected blank line shows a sliver
+        const x0 = Math.max(left, xAt(Math.max(r.from, line.from)));
+        let x1 = Math.min(right, xAt(Math.min(r.to, line.to)));
+        if (!line.length && r.to > line.to) x1 = Math.min(right, x0 + 5);
         if (x1 - x0 < 0.5) continue;
         row ??= (() => {
           const blk = view.lineBlockAt(line.from);

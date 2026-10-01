@@ -759,7 +759,7 @@ export const cases = [
   },
   {
     id: 'B-101',
-    name: 'Selecting in a code block that scrolls: whole rows light up wherever the pane is, a drag past the edge scrolls it, and edits keep every line in step',
+    name: 'Selecting in a code block that scrolls: every selected row lights up over its text (never the padding) wherever the pane is, a drag past the edge scrolls it, and edits keep every line in step',
     async run(t, ctx) {
       const long = 'const a = 1; ' + 'someIdentifier + '.repeat(10) + 'end;';
       const md = ['正文', '', '```js', long, long, 'b()', '```', '', '结尾'].join('\n');
@@ -808,7 +808,17 @@ export const cases = [
       });
       await sleep(150);
       p = await pane();
-      t.ok('scrolled to the end, a row whose selection starts out of sight still lights up from the left edge', p.xs[0] > 0 && p.rows.length === 2 && p.rows[0].l === 0 && p.rows[0].r === p.w && p.rows[1].l === 0, JSON.stringify(p));
+      t.ok('scrolled to the end, a row whose selection starts out of sight still lights up from the left edge', p.xs[0] > 0 && p.rows.length === 2 && p.rows.every((r) => r.l === 0 && r.r === p.w - 14), JSON.stringify(p));
+
+      // the padding is never selected: at the start of the pane a row starts where the text does
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(6).to, head: v.state.doc.line(5).from } });
+      });
+      await sleep(150);
+      p = await pane();
+      t.ok('a row that starts with the line starts at its first character, not the edge', p.xs[0] === 0 && p.rows.length === 2 && p.rows.every((r) => r.l === 14), JSON.stringify(p.rows));
+      t.ok('and a short line ends at its last character', p.rows[1].r < 60, JSON.stringify(p.rows[1]));
 
       // a drag past the right edge: the head stays on what shows, and the pane scrolls on its own
       await page.evaluate(() => {
