@@ -278,7 +278,8 @@ export const cases = [
       await page.keyboard.down('Alt');
       await page.mouse.click(p.x, p.y);
       await page.keyboard.up('Alt');
-      await sleep(80);
+      // the carets are drawn in the next measure cycle: wait for it rather than a fixed time (slow CI)
+      await page.waitForFunction(() => document.querySelectorAll('.cm-cursor').length === 2, { timeout: 3000 }).catch(() => {});
       t.eq('⌥-click adds a caret', await sel(), [[2, 3, 3], [3, 5, 5]]);
       t.eq('both are drawn, both lines highlighted', await page.evaluate(() => [document.querySelectorAll('.cm-cursor').length, document.querySelectorAll('.cm-line.aline').length]), [2, 2]);
       await page.keyboard.type('Z');

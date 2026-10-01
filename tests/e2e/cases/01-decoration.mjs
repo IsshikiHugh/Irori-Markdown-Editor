@@ -836,14 +836,18 @@ export const cases = [
       await sleep(60);
       const near = await pane();
       await page.mouse.move(L.x + L.w + 80, L.y, { steps: 3 });
-      await sleep(400);
+      await page
+        .waitForFunction((x) => document.querySelector('.cm-content > .cm-line.cb').scrollLeft > x + 50, { timeout: 3000 }, near.xs[0])
+        .catch(() => {});
+      await sleep(100);
       const far = await pane();
       await page.mouse.up();
       await sleep(60);
       const upAt = (await pane()).xs[0];
       await sleep(300);
       const later = (await pane()).xs[0];
-      t.ok('and stops once the button is up', upAt === later, `${upAt} → ${later}`);
+      // (at most the caret's own last nudge into view — under a character — never a run-on scroll)
+      t.ok('and stops once the button is up', Math.abs(later - upAt) < 10, `${upAt} → ${later}`);
       t.ok('at the edge nothing jumps', near.xs[0] < 40 && near.head - near.line4 < 80, JSON.stringify(near));
       t.ok('held past the edge, the pane scrolls and the selection follows it', far.xs[0] > near.xs[0] + 50 && far.head > near.head, `${near.xs[0]}→${far.xs[0]}, head ${near.head}→${far.head}`);
       const caretIn = await page.evaluate(() => {

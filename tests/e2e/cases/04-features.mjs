@@ -551,7 +551,8 @@ export const cases = [
       await page.keyboard.down(MOD);
       await page.keyboard.press('Enter');
       await page.keyboard.up(MOD);
-      await sleep(250); // the count follows an edit after a short pause
+      // the count follows an edit after a short pause
+      await page.waitForFunction(() => document.querySelector('.fx-count')?.textContent === '无结果', { timeout: 3000 }).catch(() => {});
       t.eq('⌘Enter: all replaced', await docText(page), md.replaceAll('苹果', '梨'));
       t.eq('nothing left to find', (await info()).count, '无结果');
       await page.keyboard.press('Escape');
