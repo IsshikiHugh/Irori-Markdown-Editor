@@ -155,20 +155,23 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .cblang{color:#b3a892;}
 /* In the editor a code line does not wrap: the block scrolls sideways as one pane (editor/codescroll.ts).
    Each line clips its own text and is moved with scrollLeft (tab stops stay put); the wide ::after keeps
-   even a short line scrollable as far as the block's longest. The 14px either side is now a 6px
-   transparent border (the band shows through it — background-clip is the border box) plus 8px of
-   padding: overflow clips at the padding box, so the text disappears 6px inside the band's edge,
-   right where the slit is drawn. The minimap follows suit; the PDF keeps wrapping (paper can't scroll). */
-.cm-editor .cm-line.ln.cb{white-space:pre;overflow-wrap:normal;word-break:normal;overflow:hidden;position:relative;border:0 solid transparent;border-width:0 6px;padding-left:8px;padding-right:8px;}
+   even a short line scrollable as far as the block's longest. The text disappears under the band's edge;
+   on a side that hides something, the edge shows as a slit: a hairline a shade darker, its ends fading
+   out, and a soft shadow on the text side — an ellipse halved by the edge, so it is widest in the middle,
+   thins out towards both ends and has no hard boundary anywhere. The minimap does not wrap code either;
+   the PDF still does (paper can't scroll). */
+.cm-editor .cm-line.ln.cb{white-space:pre;overflow-wrap:normal;word-break:normal;overflow:hidden;position:relative;}
 .cm-editor .cm-line.ln.cb::after{content:"";position:absolute;left:0;top:0;width:100000px;height:1px;pointer-events:none;}
 .mini .content .ln.cb{white-space:pre;overflow-wrap:normal;word-break:normal;overflow:hidden;}
 /* the slit layer: above the text, below the caret */
 .cm-editor .cm-codeSlits{z-index:140!important;pointer-events:none;}
 .cbpane{position:absolute;}
-.cbslits{position:absolute;left:0;top:0;overflow:visible;}
-.cbslit{opacity:0;transition:opacity .15s ease;}
+.cbslit{position:absolute;top:0;bottom:0;width:7px;opacity:0;transition:opacity .15s ease;}
+.cbslit-l{left:0;background:radial-gradient(farthest-side at 0 50%,rgba(107,79,56,.09),rgba(107,79,56,.035) 55%,rgba(107,79,56,0));}
+.cbslit-r{right:0;background:radial-gradient(farthest-side at 100% 50%,rgba(107,79,56,.09),rgba(107,79,56,.035) 55%,rgba(107,79,56,0));}
+.cbslit::before{content:"";position:absolute;top:6px;bottom:6px;width:1px;background:linear-gradient(rgba(147,110,86,0),rgba(147,110,86,.2) 22%,rgba(147,110,86,.2) 78%,rgba(147,110,86,0));}
+.cbslit-l::before{left:0;} .cbslit-r::before{right:0;}
 .cbpane.l .cbslit-l,.cbpane.r .cbslit-r{opacity:1;}
-.cbslit-line{fill:rgba(118,90,66,.55);}
 .cbbar{position:absolute;left:14px;right:14px;bottom:1px;height:3px;opacity:0;transition:opacity .25s ease;}
 .cbpane.hot .cbbar{opacity:1;transition-duration:.12s;}
 /* 3px to see, 9px to grab */

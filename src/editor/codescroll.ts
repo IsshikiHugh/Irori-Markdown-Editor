@@ -7,9 +7,10 @@
      keeps every line scrollable to any offset, however short it is.
    - the offsets live here, keyed by where the block starts, and are written to the line
      elements after every redraw (CodeMirror creates and replaces them freely).
-   - the text disappears into a slit on each side that hides something; the slits, their
-     shadows and a thin scrollbar are drawn on a layer above the text. The selection and
-     caret layers are clipped at the slits too, so nothing hidden is drawn in the margin.
+   - the text disappears under the block's edge; on each side that hides something the edge
+     shows as a slit (a hairline a shade darker, with a soft shadow on the text side). Those
+     and a thin scrollbar are drawn on a layer above the text. The selection and caret
+     layers are clipped at the edges too, so nothing hidden is drawn in the margin.
    - wheel / trackpad / ⇧-wheel over a block scrolls it; the main caret is kept in view.
 
    Widths are measured on a canvas in the code font (not from the DOM), so following the
@@ -22,8 +23,7 @@ import { Prec } from '@codemirror/state';
 import type { EditorState, Extension } from '@codemirror/state';
 import { codeBlocks, codeScrolled, hoveredLine } from './decorations';
 
-/** a code line's transparent border (where the slit sits) and the padding inside it: style.css */
-const SLIT = 6;
+/** a code line's padding on either side: style.css */
 const PAD = 14;
 /** the code font, as in style.css (.ln.cb) */
 const FONT = '15px ui-monospace, Menlo, monospace';
@@ -265,38 +265,6 @@ const wheel = Prec.high(
 
 /* ---------- the slit layer: slits, their shadows, the scrollbar; clipping the other layers ---------- */
 
-const SVG = 'http://www.w3.org/2000/svg';
-let gradId = 0;
-
-/** the slit: pointed at both ends, an even hairline between */
-function slitPath(x: number, h: number): string {
-  const e = 3;
-  const t = Math.min(22, (h - 2 * e) / 3);
-  const w = 0.7;
-  const a = e + t;
-  const z = h - e - t;
-  return (
-    `M${x} ${e}Q${x + w} ${e + t * 0.45} ${x + w} ${a}L${x + w} ${z}Q${x + w} ${z + t * 0.55} ${x} ${h - e}` +
-    `Q${x - w} ${z + t * 0.55} ${x - w} ${z}L${x - w} ${a}Q${x - w} ${e + t * 0.45} ${x} ${e}Z`
-  );
-}
-
-/** the shadow beside it, on the text side (`dir` +1 = to the right): widest in the middle, pointed at both ends */
-function shadowPath(x: number, h: number, dir: number): string {
-  const e = 3;
-  const t = Math.min(34, (h - 2 * e) / 2.4);
-  const w = 10 * dir;
-  const a = e + t;
-  const z = h - e - t;
-  return `M${x} ${e}Q${x + w} ${e + t * 0.35} ${x + w} ${a}L${x + w} ${z}Q${x + w} ${z + t * 0.65} ${x} ${h - e}Z`;
-}
-
-function svgEl<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, string | number>) {
-  const el = document.createElementNS(SVG, tag);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
-  return el;
-}
-
 class SlitMarker implements LayerMarker {
   constructor(
     readonly at: number,
@@ -338,47 +306,21 @@ class SlitMarker implements LayerMarker {
 
   update(dom: HTMLElement, old: LayerMarker) {
     if (!(old instanceof SlitMarker) || !dom.classList.contains('cbpane')) return false;
-    if (old.width !== this.width || old.height !== this.height) this.shape(dom);
     this.state(dom);
     return true;
   }
 
-  /** the drawing, which depends only on the size */
+  /** the slits (CSS draws them: style.css .cbslit) and the scrollbar */
   private shape(dom: HTMLElement) {
-    const { width: w, height: h } = this;
-    const id = `cbsh${++gradId}`;
-    const svg = svgEl('svg', { width: w, height: h, class: 'cbslits' });
-    const defs = svgEl('defs', {});
-    for (const [side, x0, x1] of [
-      ['l', SLIT, SLIT + 10],
-      ['r', w - SLIT, w - SLIT - 10],
-    ] as const) {
-      const g = svgEl('linearGradient', { id: id + side, gradientUnits: 'userSpaceOnUse', x1: x0, x2: x1, y1: 0, y2: 0 });
-      g.append(
-        svgEl('stop', { offset: 0, 'stop-color': '#6b4f38', 'stop-opacity': 0.2 }),
-        svgEl('stop', { offset: 0.45, 'stop-color': '#6b4f38', 'stop-opacity': 0.07 }),
-        svgEl('stop', { offset: 1, 'stop-color': '#6b4f38', 'stop-opacity': 0 }),
-      );
-      defs.append(g);
-    }
-    svg.append(defs);
-    for (const [side, x, dir] of [
-      ['l', SLIT, 1],
-      ['r', w - SLIT, -1],
-    ] as const) {
-      const g = svgEl('g', { class: `cbslit cbslit-${side}` });
-      g.append(
-        svgEl('path', { d: shadowPath(x, h, dir), fill: `url(#${id}${side})` }),
-        svgEl('path', { d: slitPath(x, h), class: 'cbslit-line' }),
-      );
-      svg.append(g);
-    }
-    const bar = document.createElement('div');
-    bar.className = 'cbbar';
+    const parts = ['cbslit cbslit-l', 'cbslit cbslit-r', 'cbbar'].map((c) => {
+      const el = document.createElement('div');
+      el.className = c;
+      return el;
+    });
     const thumb = document.createElement('div');
     thumb.className = 'cbthumb';
-    bar.append(thumb);
-    dom.replaceChildren(svg, bar);
+    parts[2].append(thumb);
+    dom.replaceChildren(...parts);
   }
 
   /** what moves: position, which slits show, the thumb */
@@ -397,7 +339,7 @@ class SlitMarker implements LayerMarker {
   }
 }
 
-/** Not drawn: clips the selection and caret layers at the slits, so nothing hidden shows in the margin. */
+/** Not drawn: clips the selection and caret layers at the block's edges, so nothing hidden shows in the margin. */
 class ClipMarker implements LayerMarker {
   constructor(
     readonly scroller: HTMLElement,
@@ -456,8 +398,8 @@ function markers(view: EditorView): LayerMarker[] {
     const thumbX = Math.round(((track - thumbW) * off) / max);
     const hot = cs.isHot(at) || (hoverNo >= b.from && hoverNo <= b.to);
     out.push(new SlitMarker(at, left, top, width, height, l, r, hot, thumbX, thumbW));
-    if (l) holes += `M-1000000 ${top}H${left + SLIT}V${top + height}H-1000000Z`;
-    if (r) holes += `M${left + width - SLIT} ${top}H1000000V${top + height}H${left + width - SLIT}Z`;
+    if (l) holes += `M-1000000 ${top}H${left}V${top + height}H-1000000Z`;
+    if (r) holes += `M${left + width} ${top}H1000000V${top + height}H${left + width}Z`;
   }
   return [new ClipMarker(scroller, holes), ...out];
 }
