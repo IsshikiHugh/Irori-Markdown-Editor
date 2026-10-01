@@ -189,7 +189,7 @@ describe('document session', () => {
     expect(events.conflicts).toBe(0);
   });
 
-  it('⌘O waits for an external-change question that came up while the picker was open', async () => {
+  it('⌘O stops while an external-change question that came up during the picker is open', async () => {
     const { files, platform, doc, events, bump } = setup();
     open.push(doc);
     await doc.open('/a.md');

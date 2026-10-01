@@ -198,6 +198,11 @@ export class DocumentSession {
   async saveAs(): Promise<boolean> {
     // an autosave firing during this would write the old path behind it
     if (this.saveTimer) clearTimeout(this.saveTimer);
+    // the open question is about this text and this file: answered first, as for ⌘S
+    if (this.asking) {
+      this.events.onToast('文件在外部被改动了，请先选择保留哪个版本');
+      return false;
+    }
     const suggested = this.path ? basename(this.path) : '未命名.md';
     const target = await this.platform.saveDialog(suggested);
     if (!target) return false;
