@@ -102,6 +102,11 @@ export class DocumentSession {
   private adopt(path: string, text: string, mtime: number) {
     if (this.saveTimer) clearTimeout(this.saveTimer);
     this.epoch++;
+    // a question still open about the document before is moot now (its answer is ignored)
+    if (this.asking) {
+      this.asking = false;
+      this.answered();
+    }
     this.path = path;
     this.text = text;
     this.diskText = text;
@@ -147,6 +152,12 @@ export class DocumentSession {
       await prepare?.(text);
       // typed (or gone missing) while that was read: settle it first, then read again
       if (this.dirty && !discard) continue;
+      // the old file changed on disk meanwhile and that question is open: it is about the text on
+      // screen, so it is answered before anything replaces that text
+      if (this.asking) {
+        this.events.onToast('文件在外部被改动了，请先选择保留哪个版本');
+        return null;
+      }
       this.adopt(p, text, mtime);
       return p;
     }
@@ -293,9 +304,11 @@ export class DocumentSession {
       return;
     }
     this.asking = true;
+    // an answer only applies to the document it was asked about (`epoch` is the one this check began in)
     this.events.onConflict(
       disk,
       () => {
+        if (epoch !== this.epoch) return;
         // keep mine: the next save overwrites, which is now an informed choice
         this.diskText = disk;
         this.asking = false;
@@ -303,6 +316,7 @@ export class DocumentSession {
         this.answered();
       },
       () => {
+        if (epoch !== this.epoch) return;
         this.diskText = disk;
         this.text = disk;
         this.dirty = false;

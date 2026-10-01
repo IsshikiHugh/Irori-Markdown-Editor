@@ -188,4 +188,23 @@ describe('document session', () => {
     expect(events.reloads).toBe(0);
     expect(events.conflicts).toBe(0);
   });
+
+  it('⌘O waits for an external-change question that came up while the picker was open', async () => {
+    const { files, platform, doc, events, bump } = setup();
+    open.push(doc);
+    await doc.open('/a.md');
+    delete files['/a.md'];
+    await doc.checkDisk(); // gone missing
+    doc.setText('one two'); // edits that can only be discarded: Cmd-O asks, the answer is yes
+    platform.openDialog = async () => {
+      files['/a.md'] = 'restored'; // the old file comes back, different, while the picker is open
+      bump();
+      await doc.checkDisk();
+      return '/c.md';
+    };
+    expect(await doc.openDialog()).toBe(null);
+    expect(events.conflicts).toBe(1);
+    expect(doc.path).toBe('/a.md');
+    expect(doc.text).toBe('one two');
+  });
 });
