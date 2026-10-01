@@ -44,6 +44,7 @@ cat > "$doc" <<'MD'
 
 ```ts
 const n: number = 2;
+const long = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30];
 ```
 
 $$ \frac{a}{b} $$
@@ -149,6 +150,9 @@ const need = [["host is Tauri", r.host === "tauri"], ["engine is the system WebV
   ["table of contents", (r.toc || 0) >= 1], ["minimap", (r.minimapRows || 0) >= 1],
   ["text clears the transparent title bar", process.platform !== "darwin" || (r.overlayTitlebar && r.toplineHeight >= 24)],
   ["refocusing the editor keeps the scroll position", r.focusKeepsScroll !== false],
+  ["a long code line stays one row", r.codeScroll && r.codeScroll.oneRow === true],
+  ["a code block scrolls sideways to just the end of its longest line", r.codeScroll && r.codeScroll.scrolled > 0 && Math.abs(r.codeScroll.endGap) <= 2],
+  ["selection and caret are clipped at the slits (clip-path accepted)", r.codeScroll && /^path/.test(r.codeScroll.clip || "") && r.codeScroll.slits === 1],
   ["exactly one caret, no black border", !r.caret || (r.caret.count === 1 && r.caret.border === "0px")],
   ["fade layer lives inside the editor (cannot cover the caret or top bar)", r.fadeParent === "cm-editor"],
   ["editor is its own stacking context (fade cannot cover the drawer)", r.editorIsolated === true]];

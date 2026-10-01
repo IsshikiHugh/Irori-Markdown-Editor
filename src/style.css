@@ -153,6 +153,27 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .ln.cb.cbclose,.cm-editor .cm-line.ln.cb.cbclose{border-radius:0 0 8px 8px;padding-bottom:4px;}
 .ln.cb.mhover{background-color:rgba(147,113,86,.1);} .ln.cb.aline{background-color:rgba(147,114,79,.14);}
 .cblang{color:#b3a892;}
+/* In the editor a code line does not wrap: the block scrolls sideways as one pane (editor/codescroll.ts).
+   Each line clips its own text and is moved with scrollLeft (tab stops stay put); the wide ::after keeps
+   even a short line scrollable as far as the block's longest. The 14px either side is now a 6px
+   transparent border (the band shows through it — background-clip is the border box) plus 8px of
+   padding: overflow clips at the padding box, so the text disappears 6px inside the band's edge,
+   right where the slit is drawn. The minimap follows suit; the PDF keeps wrapping (paper can't scroll). */
+.cm-editor .cm-line.ln.cb{white-space:pre;overflow-wrap:normal;word-break:normal;overflow:hidden;position:relative;border:0 solid transparent;border-width:0 6px;padding-left:8px;padding-right:8px;}
+.cm-editor .cm-line.ln.cb::after{content:"";position:absolute;left:0;top:0;width:100000px;height:1px;pointer-events:none;}
+.mini .content .ln.cb{white-space:pre;overflow-wrap:normal;word-break:normal;overflow:hidden;}
+/* the slit layer: above the text, below the caret */
+.cm-editor .cm-codeSlits{z-index:140!important;pointer-events:none;}
+.cbpane{position:absolute;}
+.cbslits{position:absolute;left:0;top:0;overflow:visible;}
+.cbslit{opacity:0;transition:opacity .15s ease;}
+.cbpane.l .cbslit-l,.cbpane.r .cbslit-r{opacity:1;}
+.cbslit-line{fill:rgba(118,90,66,.55);}
+.cbbar{position:absolute;left:14px;right:14px;bottom:1px;height:3px;opacity:0;transition:opacity .25s ease;}
+.cbpane.hot .cbbar{opacity:1;transition-duration:.12s;}
+/* 3px to see, 9px to grab */
+.cbthumb{position:absolute;bottom:0;height:9px;border-top:6px solid transparent;background:rgba(118,90,66,.28);background-clip:padding-box;border-radius:2px;pointer-events:auto;cursor:default;}
+.cbpane.hot .cbthumb:hover,.cbthumb:active{background-color:rgba(118,90,66,.45);}
 /* syntax colours (editor/highlight.ts, @lezer/highlight's classHighlighter): muted, on the paper.
    Colour only — no weight or slant — so code (a ```markdown block included) never looks rendered. */
 .tok-keyword,.tok-bool,.tok-null{color:#9a5a3c;}

@@ -11,7 +11,8 @@ import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo } from '@codemirror/commands';
 import { search, searchKeymap, openSearchPanel, closeSearchPanel } from '@codemirror/search';
-import { sourceDecoration, setAssetResolver } from './decorations';
+import { onlyScrolled, sourceDecoration, setAssetResolver } from './decorations';
+import { codeScroll } from './codescroll';
 import type { AssetResolver } from './decorations';
 import { imageNavKeymap } from './image-nav';
 import { continueList } from './lists';
@@ -123,8 +124,9 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
       if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === 'file')) e.preventDefault();
       return false;
     },
-    // macOS remaps Shift+wheel to a horizontal delta; this editor has no horizontal
-    // scroll, so send it back to the vertical axis (lets you wheel while shift-selecting)
+    // macOS remaps Shift+wheel to a horizontal delta; outside code blocks (codescroll.ts) this
+    // editor has no horizontal scroll, so send it back to the vertical axis (lets you wheel
+    // while shift-selecting)
     wheel(e, view) {
       if (!e.shiftKey) return false;
       const d = Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
@@ -152,6 +154,7 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
         search({ top: false }),
         zh,
         sourceDecoration,
+        codeScroll,
         linkClicks,
         imeClass,
         imagePaste,
@@ -183,6 +186,7 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
           indentWithTab,
         ]),
         EditorView.updateListener.of((u) => {
+          if (onlyScrolled(u)) return; // a code block scrolled sideways: the caret did not move
           if (u.docChanged) hooks.onChange(u.state.doc.toString());
           if (u.docChanged || u.selectionSet) hooks.onUpdate(u.docChanged, u.selectionSet);
         }),

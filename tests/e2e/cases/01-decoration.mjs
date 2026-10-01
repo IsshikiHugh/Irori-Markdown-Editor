@@ -637,6 +637,127 @@ export const cases = [
     },
   },
   {
+    id: 'B-100',
+    name: 'A code block does not wrap: it scrolls sideways as one pane, keeps the caret in view, and its text disappears into a slit',
+    async run(t, ctx) {
+      const long = 'def f(' + Array.from({ length: 14 }, (_, i) => `arg_${i}`).join(', ') + '):';
+      const tabbed = '\treturn g(' + Array.from({ length: 12 }, (_, i) => `x${i}`).join(' + ') + ')';
+      const prose = '正文'.repeat(60);
+      const md = [prose, '', '```py', long, tabbed, 'x = 1', '```', '', '```js', 'short()', '```', '', '结尾'].join('\n');
+      const page = await ctx.open({ files: { '/n/c.md': md }, startup: '/n/c.md' });
+      await caretToLine(page, 13);
+      await sleep(200);
+      const rows = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll('.cm-content .cm-line')].map((l) => ({
+            text: l.textContent,
+            h: l.getBoundingClientRect().height,
+            x: l.scrollLeft,
+            cb: l.classList.contains('cb'),
+          })),
+        );
+      let r = await rows();
+      const codeH = r.find((x) => x.text === 'x = 1').h;
+      t.ok('a long code line stays one row high', r.find((x) => x.text === long).h === codeH && r.find((x) => x.text === tabbed).h === codeH, JSON.stringify(r.map((x) => x.h)));
+      t.ok('prose still wraps', r[0].h > codeH * 1.5, String(r[0].h));
+      const pane = () =>
+        page.evaluate(() =>
+          [...document.querySelectorAll('.cm-codeSlits .cbpane')].map((p) => ({ l: p.classList.contains('l'), r: p.classList.contains('r') })),
+        );
+      t.eq('only the block that overflows gets slits, right side only at first', await pane(), [{ l: false, r: true }]);
+
+      // a horizontal wheel over the block scrolls every line of it, and nothing else
+      const box = await page.evaluate(() => {
+        const l = [...document.querySelectorAll('.cm-line.cb')][1].getBoundingClientRect();
+        return { x: l.left + 200, y: l.top + l.height / 2 };
+      });
+      await page.mouse.move(box.x, box.y);
+      await page.mouse.wheel({ deltaX: 120 });
+      await sleep(150);
+      r = await rows();
+      const block = r.filter((x) => x.cb).slice(0, 5);
+      t.ok('the whole block moved together', block.every((x) => x.x === 120), JSON.stringify(block.map((x) => x.x)));
+      t.ok('the other block did not', r.filter((x) => x.cb).slice(5).every((x) => x.x === 0), '');
+      t.eq('both slits now', await pane(), [{ l: true, r: true }]);
+      // a tab moves with the text: the column after it lands where it should
+      const tabOk = await page.evaluate(() => {
+        const v = window.__irori.view;
+        const ln = v.state.doc.line(5);
+        const a = v.coordsAtPos(ln.from + 1);
+        const z = v.coordsAtPos(ln.from + 2);
+        const lineBox = document.querySelectorAll('.cm-line.cb')[2].getBoundingClientRect();
+        return { tab: a.left - (lineBox.left + 14 - 120), ch: z.left - a.left };
+      });
+      t.near('after a tab, text sits one tab stop in, wherever the pane is scrolled', tabOk.tab, tabOk.ch * 4, 1.5);
+      await page.mouse.wheel({ deltaX: 100000 });
+      await sleep(150);
+      t.eq('at the far end only the left slit stays', await pane(), [{ l: true, r: false }]);
+      const end = await page.evaluate(() => {
+        const v = window.__irori.view;
+        const ln = v.state.doc.line(4);
+        const c = v.coordsAtPos(ln.to);
+        const box = document.querySelectorAll('.cm-line.cb')[1].getBoundingClientRect();
+        return { c: c.right, edge: box.right - 14 };
+      });
+      t.near('it stops where the longest line ends at the padding', end.c, end.edge, 2);
+
+      // the caret is kept in view: Home goes back to the start, End out to the end
+      await caretToLine(page, 5);
+      await sleep(150);
+      r = await rows();
+      t.ok('caret at the start of a line → the pane scrolls back', r.filter((x) => x.cb)[0].x === 0, String(r.filter((x) => x.cb)[0].x));
+      await page.keyboard.press('End');
+      await sleep(150);
+      const seen = await page.evaluate(() => {
+        const c = document.querySelector('.cm-cursor-primary').getBoundingClientRect();
+        const b = document.querySelectorAll('.cm-line.cb')[2].getBoundingClientRect();
+        return { c: c.left, l: b.left + 6, r: b.right - 6, x: document.querySelectorAll('.cm-line.cb')[2].scrollLeft };
+      });
+      t.ok('caret at the end of a long line → the pane follows it', seen.x > 0 && seen.c > seen.l && seen.c < seen.r, JSON.stringify(seen));
+      await page.keyboard.type('Z');
+      await sleep(100);
+      t.ok('typing there keeps it in view', await page.evaluate(() => {
+        const c = document.querySelector('.cm-cursor-primary').getBoundingClientRect();
+        const b = document.querySelectorAll('.cm-line.cb')[2].getBoundingClientRect();
+        return c.left < b.right - 6;
+      }), '');
+      await page.keyboard.press('Backspace');
+
+      // nothing hidden is drawn outside: select across the block, the selection and caret layers are clipped at the slits
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(4).from, head: v.state.doc.line(5).to } });
+      });
+      await sleep(150);
+      const clip = await page.evaluate(() => ({
+        sel: document.querySelector('.cm-selectionLayer').style.clipPath,
+        cur: document.querySelector('.cm-cursorLayer').style.clipPath,
+      }));
+      t.ok('selection and caret layers carry a clip with a hole on the hidden side', /path\(evenodd/.test(clip.sel) && clip.sel === clip.cur, clip.sel.slice(0, 80));
+
+      // ⇧-wheel scrolls the block sideways too (macOS sends it as deltaX, elsewhere deltaY)
+      await page.mouse.move(box.x, box.y);
+      const before = (await rows()).filter((x) => x.cb)[0].x;
+      await page.keyboard.down('Shift');
+      await page.mouse.wheel({ deltaY: -80 });
+      await page.keyboard.up('Shift');
+      await sleep(150);
+      const after = (await rows()).filter((x) => x.cb)[0].x;
+      t.ok('⇧-wheel over the block', after < before, `${before} → ${after}`);
+      t.eq('the text is untouched', await docText(page), md);
+
+      // minimap: code does not wrap there either (its rows sit at the editor's heights); PDF: it wraps
+      t.ok('minimap', await page.evaluate(() => getComputedStyle(document.querySelector('#miniContent .cb')).whiteSpace === 'pre'), '');
+      const printed = await page.evaluate(async () => {
+        await window.__irori.preparePrint();
+        const ws = getComputedStyle(document.querySelector('#print .ln.cb')).whiteSpace;
+        window.__irori.clearPrint();
+        return ws;
+      });
+      t.eq('PDF wraps', printed, 'pre-wrap');
+    },
+  },
+  {
     id: 'B-98',
     name: 'Math: a $$ block or an inline $…$ away from the caret is typeset (editor, minimap, PDF); a click or the caret turns it back into source',
     async run(t, ctx) {

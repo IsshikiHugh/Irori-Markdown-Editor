@@ -363,6 +363,16 @@ export function inCode(state: EditorState, n: number): boolean {
   return state.field(blockField).fences.some((r) => n >= r.from && n <= r.to);
 }
 
+/** Every fenced code block (lines 1-based, fences included), in document order. */
+export function codeBlocks(state: EditorState): readonly (Span & { closed: boolean })[] {
+  return state.field(blockField).fences;
+}
+
+/** The start of the line the mouse is over, if any. */
+export function hoveredLine(state: EditorState): number | null {
+  return state.field(hoverLine, false) ?? null;
+}
+
 /** The math block line `n` belongs to, if any. */
 export function inMath(state: EditorState, n: number): MathRange | null {
   return state.field(blockField).maths.find((r) => n >= r.from && n <= r.to) ?? null;
@@ -496,6 +506,15 @@ function build(view: EditorView): DecorationSet {
 
 const hideMarkup = Decoration.replace({});
 
+/** A code block scrolled sideways to `x` (codescroll.ts), or just its scrollbar faded: nothing
+    here needs drawing again. The transaction carries the unchanged selection, so it must not be
+    taken for a caret move either (onlyScrolled). */
+export const codeScrolled = StateEffect.define<{ at: number; x: number } | null>();
+
+/** an update that only scrolled a code block sideways */
+export const onlyScrolled = (u: ViewUpdate) =>
+  !u.docChanged && u.transactions.length > 0 && u.transactions.every((t) => t.effects.some((e) => e.is(codeScrolled)));
+
 /** a code block's language has arrived: draw it again, coloured */
 const languageLoaded = StateEffect.define<null>();
 
@@ -517,7 +536,13 @@ export const sourceDecoration: Extension = [
         for (const off of this.offs) off();
       }
       update(u: ViewUpdate) {
-        if (u.docChanged || u.viewportChanged || u.selectionSet || u.transactions.some((t) => t.effects.length))
+        if (onlyScrolled(u)) return;
+        if (
+          u.docChanged ||
+          u.viewportChanged ||
+          u.selectionSet ||
+          u.transactions.some((t) => t.effects.some((e) => !e.is(codeScrolled)))
+        )
           this.decorations = build(u.view);
       }
     },

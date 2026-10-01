@@ -9,6 +9,7 @@
    It moved here from main.ts only to keep the assembly file readable — over ninety lines there
    used to be this. */
 import type { EditorView } from '@codemirror/view';
+import { scrollCodeBlock } from '../editor/codescroll';
 import { loadLanguages } from '../editor/highlight';
 import { loadMath } from '../editor/math';
 import type { Platform } from '../platform/types';
@@ -70,6 +71,42 @@ if (smoke) {
     // (the --close run tripped on exactly this race: heading / quote / bold all falsely reported ✗)
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     await new Promise((r) => setTimeout(r, 120));
+  }
+}
+// Code blocks scroll sideways (editor/codescroll.ts). What only WebKit can tell: that a long code
+// line stays one row, that the widths measured on a canvas match the text as laid out (scrolled to
+// the far end, the end of the longest line sits at the padding), and that the clip-path holding the
+// selection and caret inside the slits is accepted.
+let codeScroll: Record<string, unknown> | null = null;
+if (smoke) {
+  const view = ctx.view;
+  const doc = view.state.doc;
+  let n = 1;
+  let longest = 0;
+  for (let k = 1; k <= doc.lines; k++) if (view.state.doc.line(k).text.startsWith('const long')) n = k;
+  const rows = [...document.querySelectorAll<HTMLElement>('.cm-content .cm-line.cb')];
+  const heights = rows.filter((r) => r.textContent?.startsWith('const')).map((r) => Math.round(r.getBoundingClientRect().height));
+  if (n > 1) {
+    longest = doc.line(n).length;
+    scrollCodeBlock(view, n, 1e6);
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const row = view.domAtPos(doc.line(n).from).node.parentElement?.closest<HTMLElement>('.cm-line.cb');
+    const end = view.coordsAtPos(doc.line(n).to);
+    const box = row?.getBoundingClientRect();
+    view.dispatch({ selection: { anchor: doc.line(n).from + 2, head: doc.line(n).to } });
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    codeScroll = {
+      longest,
+      oneRow: heights.length >= 2 && heights.every((h) => h === heights[0]),
+      heights,
+      scrolled: row?.scrollLeft ?? null,
+      endGap: end && box ? Math.round((box.right - 14 - end.right) * 10) / 10 : null,
+      clip: (document.querySelector('.cm-selectionLayer') as HTMLElement | null)?.style.clipPath.slice(0, 20) ?? null,
+      slits: document.querySelectorAll('.cm-codeSlits .cbpane.l').length,
+    };
+    scrollCodeBlock(view, n, 0);
+    view.dispatch({ selection: { anchor: 0 } });
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   }
 }
 if (smoke?.dialog) {
@@ -143,6 +180,7 @@ if (smoke) {
       // of dead shortcuts
       hasFocus: document.hasFocus(),
       focusKeepsScroll,
+      codeScroll,
       activeElement: document.activeElement?.className || document.activeElement?.tagName || null,
       toplineHeight: (document.querySelector('.topline') as HTMLElement).getBoundingClientRect().height,
       // caret: there should be exactly one, without CodeMirror's black left border
