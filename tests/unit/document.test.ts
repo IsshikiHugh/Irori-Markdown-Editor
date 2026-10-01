@@ -156,4 +156,36 @@ describe('document session', () => {
     expect(doc.text).toBe('mine');
     expect(doc.dirty).toBe(false);
   });
+
+  it('⌘O asks before dropping edits whose file went missing while the picker was open', async () => {
+    const { files, platform, doc, asked } = setup();
+    open.push(doc);
+    await doc.open('/a.md');
+    doc.setText('one two');
+    platform.openDialog = async () => {
+      delete files['/a.md']; // moved away in the file manager meanwhile
+      await doc.checkDisk();
+      return '/c.md';
+    };
+    platform.confirm = async (q: string) => (asked.push(q), false);
+    expect(await doc.openDialog()).toBe(null);
+    expect(asked.length).toBe(1);
+    expect(doc.text).toBe('one two');
+    expect(doc.path).toBe('/a.md');
+  });
+
+  it('⌘O on the file already open shows what was just saved, with nothing to reload', async () => {
+    const { files, doc, picks, events } = setup();
+    open.push(doc);
+    await doc.open('/a.md');
+    doc.setText('one two');
+    picks.push('/a.md');
+    expect(await doc.openDialog()).toBe('/a.md');
+    expect(files['/a.md']).toBe('one two');
+    expect(doc.text).toBe('one two');
+    expect(doc.dirty).toBe(false);
+    await doc.checkDisk();
+    expect(events.reloads).toBe(0);
+    expect(events.conflicts).toBe(0);
+  });
 });

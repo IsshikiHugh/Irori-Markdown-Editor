@@ -114,21 +114,42 @@ export class DocumentSession {
   }
 
   /** ⌘O. The current document's unsaved edits are kept the way closing keeps them: a buffer that
-      only lives in memory is asked about BEFORE the file picker, a named one is saved once the new
-      file is ready to show (so nothing typed in between is left out). Null if nothing was opened. */
+      only lives in memory is asked about BEFORE the file picker; a named one is saved before the
+      new file is read (so re-opening the same file reads what was just saved), and again if more
+      was typed while it was being read — the switch happens only once nothing is left unsaved. A
+      file that went missing meanwhile is asked about like an unnamed buffer. Null if nothing was
+      opened. */
   async openDialog(prepare?: (text: string) => Promise<void>): Promise<string | null> {
-    if (this.dirty && !this.flushable() && !(await this.confirmDiscard('打开别的文件'))) return null;
+    if (this.asking) {
+      this.events.onToast('文件在外部被改动了，请先选择保留哪个版本');
+      return null;
+    }
+    /** the person already said the unsaved text may go */
+    let discard = false;
+    if (this.dirty && !this.flushable()) {
+      if (!(await this.confirmDiscard('打开别的文件'))) return null;
+      discard = true;
+    }
     const p = await this.platform.openDialog();
     if (!p) return null;
-    const text = await this.platform.readText(p);
-    const mtime = (await this.platform.stat(p))?.mtimeMs ?? 0;
-    await prepare?.(text);
-    if (this.dirty && this.flushable()) {
-      await this.save();
-      if (this.dirty) return null; // it could not be saved (the reason was shown): keep it on screen
+    for (;;) {
+      if (this.dirty && !discard) {
+        if (this.flushable()) {
+          await this.save();
+          if (this.dirty) return null; // it could not be saved (the reason was shown): keep it on screen
+        } else {
+          if (!(await this.confirmDiscard('打开别的文件'))) return null;
+          discard = true;
+        }
+      }
+      const text = await this.platform.readText(p);
+      const mtime = (await this.platform.stat(p))?.mtimeMs ?? 0;
+      await prepare?.(text);
+      // typed (or gone missing) while that was read: settle it first, then read again
+      if (this.dirty && !discard) continue;
+      this.adopt(p, text, mtime);
+      return p;
     }
-    this.adopt(p, text, mtime);
-    return p;
   }
 
   /** unsaved edits here can be saved in place, without asking where */
@@ -153,7 +174,7 @@ export class DocumentSession {
     if (!this.path || this.missing) return this.saveAs();
     if (!this.dirty) return true;
     try {
-      if (!(await this.write(this.path))) return true;
+      if (!(await this.write(this.path))) return false; // another file was opened meanwhile
     } catch (err) {
       this.events.onState('dirty');
       this.events.onToast('保存失败：' + (err as Error).message);
@@ -164,11 +185,13 @@ export class DocumentSession {
   }
 
   async saveAs(): Promise<boolean> {
+    // an autosave firing during this would write the old path behind it
+    if (this.saveTimer) clearTimeout(this.saveTimer);
     const suggested = this.path ? basename(this.path) : '未命名.md';
     const target = await this.platform.saveDialog(suggested);
     if (!target) return false;
     try {
-      if (!(await this.write(target))) return true;
+      if (!(await this.write(target))) return false; // another file was opened meanwhile
     } catch (err) {
       // nothing was written: the document keeps the path it had
       this.events.onState('dirty');
