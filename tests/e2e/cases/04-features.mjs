@@ -474,7 +474,7 @@ export const cases = [
   },
   {
     id: 'B-104',
-    name: 'Find & replace is a floating box: the selection seeds the query, it counts matches, Enter steps, ⌥⌘F replaces, opening it moves no text',
+    name: 'Find & replace is a box floating in the top right corner: the selection seeds the query, it counts matches, Enter steps, ⌥⌘F replaces, opening it moves no text',
     async run(t, ctx) {
       const md = ['# 标题', '', '这里有苹果，那里也有苹果。', '', '苹果 apple Apple', '', '结尾的苹果'].join('\n');
       const page = await ctx.open({ files: { '/n/a.md': md }, startup: '/n/a.md' });
@@ -511,10 +511,10 @@ export const cases = [
       t.near('opening it moves no text', await firstTop(), top0, 0.5);
       const box = await page.evaluate(() => {
         const b = document.querySelector('.fx').getBoundingClientRect();
-        const c = window.__irori.view.contentDOM.getBoundingClientRect();
-        return { right: b.right, colRight: c.right, w: b.width };
+        const c = window.__irori.view.dom.getBoundingClientRect();
+        return { right: b.right, edge: c.right, top: b.top - c.top, w: b.width };
       });
-      t.ok('it floats at the right of the text column', Math.abs(box.right - box.colRight) < 12 && box.w < 600, JSON.stringify(box));
+      t.ok('it floats in the top right corner of the editor', Math.abs(box.edge - box.right - 12) < 2 && box.top < 20 && box.w < 440, JSON.stringify(box));
       await page.keyboard.press('Enter');
       await sleep(60);
       t.eq('Enter: the next match', (await info()).count, '2/4');

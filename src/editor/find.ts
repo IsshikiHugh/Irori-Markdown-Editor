@@ -1,4 +1,4 @@
-/* Find & replace: a small floating box at the top right of the text column, VS Code style, in
+/* Find & replace: a small floating box in the top right corner of the editor, VS Code style, in
    place of CodeMirror's bar across the bottom. Only the look is ours — the query, the matching,
    the highlighting and every command are CodeMirror's search (ADR-0002).
 
