@@ -251,6 +251,68 @@ export const cases = [
     },
   },
   {
+    id: 'B-102',
+    name: '⌘A in a code or math block selects what is between its fences first, the whole document on the second press',
+    async run(t, ctx) {
+      const md = ['开头', '', '```js', 'const a = 1;', 'const b = 2;', '```', '', '$$', 'x^2', '$$', '', '$$ y_1 $$', '', '```', '```', '', '结尾'].join('\n');
+      const page = await ctx.open({ files: { '/n/a.md': md }, startup: '/n/a.md' });
+      await sleep(200);
+      const sel = () =>
+        page.evaluate(() => {
+          const v = window.__irori.view;
+          return v.state.selection.ranges.map((r) => v.state.sliceDoc(r.from, r.to));
+        });
+      const selectAll = () => page.keyboard.down(MOD).then(() => page.keyboard.press('a')).then(() => page.keyboard.up(MOD)).then(() => sleep(60));
+      const put = (line, col = 0) =>
+        page.evaluate(
+          (n, c) => {
+            const v = window.__irori.view;
+            v.dispatch({ selection: { anchor: v.state.doc.line(n).from + c } });
+            v.focus();
+          },
+          line,
+          col,
+        );
+      await put(4, 3);
+      await selectAll();
+      t.eq('first ⌘A: the code between the fences', await sel(), ['const a = 1;\nconst b = 2;']);
+      await selectAll();
+      t.eq('second ⌘A: the whole document', await sel(), [md]);
+      await put(3, 2);
+      await selectAll();
+      t.eq('from the opening fence line too', await sel(), ['const a = 1;\nconst b = 2;']);
+      // a selection inside the block, not yet all of it, still goes to the block first
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(4).from + 1, head: v.state.doc.line(5).from + 3 } });
+      });
+      await selectAll();
+      t.eq('a partial selection grows to the block', await sel(), ['const a = 1;\nconst b = 2;']);
+      await put(9);
+      await selectAll();
+      t.eq('a math block: the TeX between the $$ lines', await sel(), ['x^2']);
+      await selectAll();
+      t.eq('then the document', await sel(), [md]);
+      await put(12, 4);
+      await selectAll();
+      t.eq('a one-line $$…$$: the TeX inside', await sel(), [' y_1 ']);
+      await put(14);
+      await selectAll();
+      t.eq('an empty code block: the document at once', await sel(), [md]);
+      await put(1);
+      await selectAll();
+      t.eq('outside any block: the document at once', await sel(), [md]);
+      // a selection reaching out of the block: the document
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.dispatch({ selection: { anchor: v.state.doc.line(2).from, head: v.state.doc.line(4).from + 2 } });
+      });
+      await selectAll();
+      t.eq('a selection that leaves the block: the document', await sel(), [md]);
+      t.eq('the text is untouched', await docText(page), md);
+    },
+  },
+  {
     id: 'B-30c',
     name: 'A selection inside a code block can be seen: the band is a tint over the selection, not a lid on it',
     async run(t, ctx) {

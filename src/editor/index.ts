@@ -16,6 +16,7 @@ import { codeScroll } from './codescroll';
 import type { AssetResolver } from './decorations';
 import { imageNavKeymap } from './image-nav';
 import { continueList } from './lists';
+import { selectBlockThenAll } from './select-block';
 import { linkClicks, setLinkOpener } from './links';
 
 export type EditorHooks = {
@@ -168,6 +169,8 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
           { key: 'Mod-b', preventDefault: true, run: wrapWith('**') },
           { key: 'Mod-i', preventDefault: true, run: wrapWith('*') },
           { key: 'Mod-f', preventDefault: true, run: openSearchPanel },
+          // in a code or math block, ⌘A selects the block first, the document on a second press
+          { key: 'Mod-a', run: selectBlockThenAll },
           { key: 'Enter', run: continueList },
           // historyKeymap only treats Ctrl-Y as redo on Windows; add ⌘⇧Z / Ctrl-Shift-Z so all three
           // platforms share one shortcut
