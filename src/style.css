@@ -319,17 +319,37 @@ body.menuopen .drawer{transform:translateX(0);}
 .spacer-fill{flex:1;min-height:12px;}
 .shortcuts{font-size:11px;color:#b0a696;line-height:1.9;border-top:1px solid var(--line);padding-top:10px;} .shortcuts b{color:var(--sub);font-weight:600;}
 
-/* ---- search panel (CodeMirror), themed to match ---- */
-.cm-panels{background:var(--rail);color:var(--ink);font-family:var(--font-body);z-index:7;}
-.cm-panels.cm-panels-bottom{border-top:1px solid var(--line);}
-.cm-search{padding:8px 12px;font-size:13px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-.cm-search input,.cm-textfield{border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:12px;background:#fff;outline:none;font-family:var(--font-body);}
-.cm-search input:focus{border-color:var(--accent);}
-.cm-search button,.cm-button{background:#fff;border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:12px;color:var(--sub);cursor:pointer;background-image:none;}
-.cm-search button:hover{border-color:var(--accent);color:var(--accent);}
-.cm-search label{font-size:12px;color:var(--sub);}
-.cm-searchMatch{background:rgba(162,123,92,.18);}
-.cm-searchMatch-selected{background:rgba(162,123,92,.38);}
+/* ---- find & replace (editor/find.ts): a small floating box at the top right of the text column ----
+   CodeMirror's top panel strip is kept but made empty and see-through (the box floats out of it, so
+   opening it moves no text); it sits above focus mode's fade (100) and the typewriter guide (101). */
+.cm-editor .cm-panels{background:transparent;border:none;color:var(--ink);font-family:var(--font-body);z-index:130;}
+.fx{position:absolute;top:10px;right:max(12px,calc(50% - 330px));display:flex;align-items:flex-start;gap:4px;padding:6px 6px 6px 4px;
+  background:var(--rail);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(120,80,40,.14),0 1px 3px rgba(120,80,40,.08);font-size:13px;}
+.fx-rows{display:flex;flex-direction:column;gap:6px;}
+.fx-row{display:flex;align-items:center;gap:2px;}
+.fx-replace{display:none;}
+.fx.open .fx-replace{display:flex;}
+.fx-field{position:relative;display:flex;align-items:center;width:260px;height:28px;border:1px solid var(--line);border-radius:8px;background:#fff;transition:border-color .12s;}
+.fx-field:focus-within{border-color:var(--accent);}
+.fx.bad .fx-row:first-child .fx-field,.fx.none .fx-row:first-child .fx-field{border-color:#d9a796;}
+.fx-input{flex:1;min-width:0;height:100%;border:none;outline:none;background:transparent;padding:0 8px;font:inherit;font-size:13px;color:var(--ink);}
+.fx-input::placeholder{color:#b9ae9e;}
+.fx-opts{display:flex;gap:1px;padding-right:3px;}
+.fx-btn{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:24px;padding:0 4px;border:none;border-radius:6px;background:transparent;color:var(--sub);cursor:pointer;font:inherit;transition:background-color .1s,color .1s;}
+.fx-btn:hover{background:var(--accent-soft);color:var(--accent);}
+.fx-opt{min-width:22px;height:22px;font-family:ui-monospace,Menlo,monospace;font-size:11px;color:#a59a8b;}
+.fx-opt.on{background:rgba(162,123,92,.16);color:var(--accent);}
+.fx-word span{border-bottom:1px solid currentColor;line-height:1.1;}
+.fx-expand{min-width:20px;height:28px;color:#b0a696;}
+.fx-expand svg{transition:transform .15s ease;}
+.fx.open .fx-expand svg{transform:rotate(90deg);}
+.fx-count{min-width:58px;padding:0 6px;font-size:12px;color:var(--sub);text-align:center;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.fx.none .fx-count,.fx.bad .fx-count{color:#b3452e;}
+.fx-text{height:28px;padding:0 10px;margin-left:4px;font-size:12px;border:1px solid var(--line);border-radius:8px;background:#fff;}
+.fx-text:hover{border-color:var(--accent);background:#fff;}
+.fx-all{margin-left:4px;}
+.cm-editor .cm-content .cm-searchMatch{background:rgba(162,123,92,.18);}
+.cm-editor .cm-content .cm-searchMatch-selected{background:rgba(162,123,92,.38);}
 
 /* ---- toast + external-change dialog ---- */
 .toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%) translateY(20px);background:#3a322a;color:#fff;font-family:var(--font-body);font-size:13px;padding:9px 16px;border-radius:10px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:30;}

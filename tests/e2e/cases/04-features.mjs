@@ -1,5 +1,5 @@
 /* TOC, minimap, focus mode, word count, search. */
-import { MOD, caretToLine, setCaret, sleep } from '../harness.mjs';
+import { MOD, caretToLine, docText, setCaret, sleep } from '../harness.mjs';
 
 /** wait until nothing is gliding any more (a far jump takes up to 1.4s, plus a landing leg) */
 const settled = async (page) => {
@@ -460,7 +460,7 @@ export const cases = [
       await page.keyboard.press('f');
       await page.keyboard.up(MOD);
       await sleep(150);
-      const open = await page.evaluate(() => !!document.querySelector('.cm-search'));
+      const open = await page.evaluate(() => !!document.querySelector('.fx'));
       t.ok('search panel appears', open, '');
       await page.keyboard.type('小节 3');
       await sleep(200);
@@ -468,8 +468,96 @@ export const cases = [
       t.ok('matches are highlighted', hits >= 1, String(hits));
       await page.keyboard.press('Escape');
       await sleep(150);
-      const closed = await page.evaluate(() => !document.querySelector('.cm-search'));
+      const closed = await page.evaluate(() => !document.querySelector('.fx'));
       t.ok('Esc closes it', closed, '');
+    },
+  },
+  {
+    id: 'B-104',
+    name: 'Find & replace is a floating box: the selection seeds the query, it counts matches, Enter steps, ⌥⌘F replaces, opening it moves no text',
+    async run(t, ctx) {
+      const md = ['# 标题', '', '这里有苹果，那里也有苹果。', '', '苹果 apple Apple', '', '结尾的苹果'].join('\n');
+      const page = await ctx.open({ files: { '/n/a.md': md }, startup: '/n/a.md' });
+      await sleep(200);
+      const info = () =>
+        page.evaluate(() => {
+          const v = window.__irori.view;
+          const m = v.state.selection.main;
+          return {
+            open: !!document.querySelector('.fx'),
+            replace: !!document.querySelector('.fx.open'),
+            query: document.querySelector('.fx-input')?.value,
+            count: document.querySelector('.fx-count')?.textContent,
+            sel: v.state.sliceDoc(m.from, m.to),
+            inBox: !!document.activeElement?.closest('.fx'),
+          };
+        });
+      const firstTop = () => page.evaluate(() => document.querySelector('.cm-content .cm-line').getBoundingClientRect().top);
+      const top0 = await firstTop();
+      // select the first "苹果" and press ⌘F
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        const at = v.state.doc.toString().indexOf('苹果');
+        v.dispatch({ selection: { anchor: at, head: at + 2 } });
+        v.focus();
+      });
+      await page.keyboard.down(MOD);
+      await page.keyboard.press('f');
+      await page.keyboard.up(MOD);
+      await sleep(150);
+      let r = await info();
+      t.ok('⌘F opens the box with the selection as the query, focus in it', r.open && r.query === '苹果' && r.inBox && !r.replace, JSON.stringify(r));
+      t.eq('it counts: the first of four', r.count, '1/4');
+      t.near('opening it moves no text', await firstTop(), top0, 0.5);
+      const box = await page.evaluate(() => {
+        const b = document.querySelector('.fx').getBoundingClientRect();
+        const c = window.__irori.view.contentDOM.getBoundingClientRect();
+        return { right: b.right, colRight: c.right, w: b.width };
+      });
+      t.ok('it floats at the right of the text column', Math.abs(box.right - box.colRight) < 12 && box.w < 600, JSON.stringify(box));
+      await page.keyboard.press('Enter');
+      await sleep(60);
+      t.eq('Enter: the next match', (await info()).count, '2/4');
+      await page.keyboard.down('Shift');
+      await page.keyboard.press('Enter');
+      await page.keyboard.up('Shift');
+      await sleep(60);
+      t.eq('⇧Enter: back', (await info()).count, '1/4');
+      // the case toggle
+      await page.click('.fx-input', { clickCount: 3 });
+      await page.keyboard.type('Apple');
+      await sleep(80);
+      t.eq('ignoring case by default', (await info()).count.split('/')[1], '2');
+      await page.click('.fx-case');
+      await sleep(80);
+      r = await info();
+      t.ok('Aa: case matters, the focus stays in the field', r.count.endsWith('/1') && r.inBox, JSON.stringify(r));
+      await page.click('.fx-case');
+      // ⌥⌘F: the replace row; ⌘Enter replaces them all
+      await page.click('.fx-input', { clickCount: 3 });
+      await page.keyboard.type('苹果');
+      await page.keyboard.down(MOD);
+      await page.keyboard.down('Alt');
+      await page.keyboard.press('f');
+      await page.keyboard.up('Alt');
+      await page.keyboard.up(MOD);
+      await sleep(100);
+      r = await info();
+      t.ok('⌥⌘F shows the replace row and focuses it', r.replace && (await page.evaluate(() => document.activeElement === document.querySelector('.fx-replace .fx-input'))), JSON.stringify(r));
+      await page.keyboard.type('梨');
+      await page.keyboard.press('Enter');
+      await sleep(60);
+      t.eq('Enter in the replace field: one replaced', ((await docText(page)).match(/梨/g) || []).length, 1);
+      await page.keyboard.down(MOD);
+      await page.keyboard.press('Enter');
+      await page.keyboard.up(MOD);
+      await sleep(250); // the count follows an edit after a short pause
+      t.eq('⌘Enter: all replaced', await docText(page), md.replaceAll('苹果', '梨'));
+      t.eq('nothing left to find', (await info()).count, '无结果');
+      await page.keyboard.press('Escape');
+      await sleep(100);
+      r = await info();
+      t.ok('Esc closes it and the text has the focus again', !r.open && (await page.evaluate(() => window.__irori.view.hasFocus)), JSON.stringify(r));
     },
   },
   {

@@ -10,7 +10,8 @@ import { EditorView, drawSelection, dropCursor, keymap } from '@codemirror/view'
 import { EditorState, EditorSelection, Compartment } from '@codemirror/state';
 import type { Extension } from '@codemirror/state';
 import { defaultKeymap, history, historyKeymap, indentWithTab, redo } from '@codemirror/commands';
-import { search, searchKeymap, openSearchPanel, closeSearchPanel } from '@codemirror/search';
+import { searchKeymap, openSearchPanel, closeSearchPanel } from '@codemirror/search';
+import { find, openReplacePanel } from './find';
 import { onlyScrolled, sourceDecoration, setAssetResolver } from './decorations';
 import { codeScroll } from './codescroll';
 import type { AssetResolver } from './decorations';
@@ -69,8 +70,8 @@ function ViewPluginCaret(): Extension {
   });
 }
 
-/* CodeMirror's own UI strings, in the app's language. (The search panel is the only
-   piece of CodeMirror chrome this editor shows.) */
+/* CodeMirror's own UI strings, in the app's language. (Its search panel is replaced by
+   find.ts; what is left are the screen-reader announcements and the go-to-line prompt.) */
 const zh: Extension = EditorState.phrases.of({
   Find: '查找',
   Replace: '替换',
@@ -153,7 +154,7 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
         drawSelection({ cursorBlinkRate: 0 }),
         dropCursor(),
         multiCursor,
-        search({ top: false }),
+        find,
         zh,
         sourceDecoration,
         codeScroll,
@@ -170,6 +171,7 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
           { key: 'Mod-b', preventDefault: true, run: wrapWith('**') },
           { key: 'Mod-i', preventDefault: true, run: wrapWith('*') },
           { key: 'Mod-f', preventDefault: true, run: openSearchPanel },
+          { key: 'Mod-Alt-f', preventDefault: true, run: openReplacePanel, scope: 'editor search-panel' },
           // in a code or math block, ⌘A selects the block first, the document on a second press
           { key: 'Mod-a', run: selectBlockThenAll },
           { key: 'Enter', run: continueList },
