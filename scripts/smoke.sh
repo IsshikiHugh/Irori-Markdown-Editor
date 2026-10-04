@@ -97,24 +97,34 @@ if [[ "$dialog" == "1" ]]; then
 fi
 
 if [[ "$pdfprobe" == "1" ]]; then
-  # PDF export through WKWebView's own print operation, written straight to a file
+  # PDF export through WKWebView's own print operation, written straight to a file — in colour
+  # and in black & white (same layout, so the same page count)
   if ! node -e '
     const fs = require("fs");
-    const [info, pdf] = process.argv.slice(1);
+    const [info, pdf, bwPdf] = process.argv.slice(1);
     const r = JSON.parse(fs.readFileSync(info, "utf8"));
-    const bytes = fs.existsSync(pdf) ? fs.readFileSync(pdf) : null;
-    const raw = bytes ? bytes.toString("latin1") : "";
-    const pages = (raw.match(/\/Type\s*\/Page[^s]/g) || []).length;
-    // the head ornament and the picture in the document
+    const read = (f) => (fs.existsSync(f) ? fs.readFileSync(f).toString("latin1") : "");
+    const count = (raw) => (raw.match(/\/Type\s*\/Page[^s]/g) || []).length;
+    const raw = read(pdf);
+    const pages = count(raw);
+    const bwPages = count(read(bwPdf));
+    // the picture in the document
     const images = (raw.match(/\/Subtype\s*\/Image/g) || []).length;
-    const ok = !r.error && r.pages >= 2 && pages === r.pages && images >= 2;
+    const ok = !r.error && r.pages >= 2 && pages === r.pages && images >= 1;
+    const bwOk = !r.error && bwPages === r.bwPages && r.bwPages === r.pages;
     console.log(`   ${ok ? "✓" : "✗"} PDF export: ${pages} page(s) written, ${r.pages} laid out, ${images} picture(s)${r.error ? " — " + r.error : ""}`);
-    process.exit(ok ? 0 : 1);
-  ' "$out.pdfinfo" "$out.pdf"; then
+    console.log(`   ${bwOk ? "✓" : "✗"} black & white PDF export: ${bwPages} page(s) written, ${r.bwPages} laid out`);
+    process.exit(ok && bwOk ? 0 : 1);
+  ' "$out.pdfinfo" "$out.pdf" "$out.bw.pdf"; then
     { kill "$pid" && wait "$pid"; } 2>/dev/null || true
     exit 1
   fi
-  [[ -n "${IRORI_SMOKE_PDF_KEEP:-}" ]] && cp "$out.pdf" "$IRORI_SMOKE_PDF_KEEP" && echo "   › kept: $IRORI_SMOKE_PDF_KEEP"
+  # IRORI_SMOKE_PDF_KEEP=<file>.pdf keeps the colour export there, and the black & white one next
+  # to it as <file>.bw.pdf
+  if [[ -n "${IRORI_SMOKE_PDF_KEEP:-}" ]]; then
+    cp "$out.pdf" "$IRORI_SMOKE_PDF_KEEP" && cp "$out.bw.pdf" "${IRORI_SMOKE_PDF_KEEP%.pdf}.bw.pdf"
+    echo "   › kept: $IRORI_SMOKE_PDF_KEEP, ${IRORI_SMOKE_PDF_KEEP%.pdf}.bw.pdf"
+  fi
 fi
 
 # --shot: capture only this window (at the position and size it reports), nothing else on screen

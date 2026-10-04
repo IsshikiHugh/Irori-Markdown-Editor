@@ -20,7 +20,11 @@ export type Settings = {
   /** where pasted images go: a folder relative to the document's (or absolute); `{name}` is
       the document's name without its extension (paths.ts: imageDir) */
   imageDir: string;
+  /** the PDF export last chosen: as on screen, or pure black on white for printing */
+  pdfMode: PdfMode;
 };
+
+export type PdfMode = 'color' | 'bw';
 
 export const DEFAULT_SETTINGS: Settings = {
   autosave: true,
@@ -38,6 +42,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   typewriter: { on: false, anchor: 45, delay: 250 },
   imageDir: '{name}',
+  pdfMode: 'color',
 };
 
 export type Stat = { mtimeMs: number; size: number } | null;

@@ -4,7 +4,7 @@ import { EditorView } from '@codemirror/view';
 import { Transaction } from '@codemirror/state';
 import { getPlatform } from './platform';
 import { DEFAULT_IMAGE_DIR, resolveAgainst } from './platform/paths';
-import type { Platform } from './platform/types';
+import type { PdfMode, Platform } from './platform/types';
 import { SettingsStore } from './app/settings';
 import { DocumentSession } from './app/document';
 import { storeImage, UnsavedDocumentError } from './app/images';
@@ -393,7 +393,9 @@ async function boot() {
 
   const exportAsPdf = () => {
     document.body.classList.remove('menuopen');
-    void exportPdf(platform, doc.stemName, view.state.doc.toString(), resolveAsset, toast);
+    void exportPdf(platform, doc.stemName, view.state.doc.toString(), resolveAsset, toast, settings.value.pdfMode, (pdfMode) =>
+      settings.patch({ pdfMode }),
+    );
   };
   $('pdfbtn').onclick = exportAsPdf;
 
@@ -429,8 +431,8 @@ async function boot() {
     settings,
     focusEditor,
     wordCount: () => $('wcv').textContent ?? '',
-    async printTo(path) {
-      const pages = await preparePrint(view.state.doc.toString(), resolveAsset);
+    async printTo(path, mode) {
+      const pages = await preparePrint(view.state.doc.toString(), resolveAsset, mode);
       try {
         await platform.printPdf(path);
       } finally {
@@ -459,7 +461,7 @@ async function boot() {
     toast,
     focusEditor,
     // the export's pages without the export (the tests print them with the browser's own PDF)
-    preparePrint: () => preparePrint(view.state.doc.toString(), resolveAsset),
+    preparePrint: (mode?: PdfMode) => preparePrint(view.state.doc.toString(), resolveAsset, mode),
     clearPrint,
   };
 }

@@ -381,10 +381,19 @@ body.menuopen .drawer{transform:translateX(0);}
 .pmeasure,#print{font-family:var(--font-body);tab-size:4;}
 /* pictures never outgrow a page (export.ts: PAGE_BODY, minus the picture's own 8px margins) */
 .pmeasure .imgwrap img,#print .imgwrap img{max-height:950px;width:auto;}
-/* the head ornament, as a 44px row; its picture (export.ts: ornament) covers the same pixels as
-   .cm-content::before/::after */
-.porn{position:relative;height:44px;}
-.porn img{position:absolute;left:calc(50% - 130px);top:14px;width:260px;height:13px;}
+/* Black & white (html.pbw, export.ts): every mark pure black on pure white — no greys, no
+   tints. Text and rules go black, fills go away; a code block keeps its outline as a black frame
+   (borders take the place of padding, so it wraps as before); pictures can only go grey. */
+.pbw :is(.pmeasure,#print){--paper:#fff;--ink:#000;--tok:#000;--link:#000;--accent:#000;--line:#000;}
+.pbw :is(.pmeasure,#print),.pbw :is(.pmeasure,#print) *{color:#000!important;background-color:transparent!important;background-image:none!important;}
+.pbw :is(.pmeasure,#print) .ln.quote{border-left-color:#000;}
+.pbw :is(.pmeasure,#print) .mdtbl :is(th,td){border-color:#000;}
+.pbw :is(.pmeasure,#print) .imgmiss{border-color:#000;}
+.pbw :is(.pmeasure,#print) .ln.cb{border:solid #000;border-width:0 1px;padding-left:13px;padding-right:13px;}
+.pbw :is(.pmeasure,#print) .ln.cb.cbopen{border-top-width:1px;padding-top:3px;}
+.pbw :is(.pmeasure,#print) .ln.cb.cbclose{border-bottom-width:1px;padding-bottom:3px;}
+.pbw :is(.pmeasure,#print) .imgwrap img{filter:grayscale(1);}
+.pbw #print .pg{background:#fff!important;}
 #print{display:none;}
 /* 296.5mm, not 297: a sliver under the sheet, so rounding never spills a page onto a blank one */
 .pg{width:210mm;height:296.5mm;padding-top:72px;overflow:hidden;background:var(--paper);break-after:page;}
@@ -393,6 +402,7 @@ body.menuopen .drawer{transform:translateX(0);}
 @media print{
   @page{size:A4;margin:0;}
   html,body{height:auto;overflow:visible;background:var(--paper);-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  html.pbw,html.pbw body{background:#fff;}
   body>:not(#print){display:none!important;}
   #print{display:block;}
 }

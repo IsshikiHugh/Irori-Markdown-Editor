@@ -57,9 +57,9 @@ export class WebPlatform implements Platform {
   /** every export: where it went and how many pages were laid out for it (the actual PDF is
       rendered by the tests themselves, with the browser's own page.pdf()) */
   writesPdf = true;
-  pdfs: { path: string | null; pages: number }[] = [];
+  pdfs: { path: string | null; pages: number; bw: boolean }[] = [];
   async printPdf(path: string | null) {
-    this.pdfs.push({ path, pages: document.querySelectorAll('#print .pg').length });
+    this.pdfs.push({ path, pages: document.querySelectorAll('#print .pg').length, bw: document.documentElement.classList.contains('pbw') });
     if (path) this.touch(path, { bytes: new Uint8Array(0), mtimeMs: Date.now() });
   }
   async readText(path: string) {

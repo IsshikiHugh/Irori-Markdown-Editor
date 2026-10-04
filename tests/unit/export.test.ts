@@ -74,21 +74,21 @@ describe('pagination', () => {
 });
 
 describe('export rows', () => {
-  it('decorates each line like the editor and opens with the ornament', () => {
+  it('decorates each line like the editor, with no head ornament', () => {
     const rows = buildRows('# 标题\n\n> 引用\n- 项\n![](a.png)', () => 'blob:x');
-    expect(rows[0].cls).toBe('porn');
-    expect(rows.slice(1).map((r) => r.cls)).toEqual(['ln h1', 'ln', 'ln quote', 'ln li', 'ln imgrow']);
-    expect(rows[1].heading).toBe(true);
-    expect(rows[2].blank).toBe(true);
-    expect(rows[4].style).toContain('--li-mark');
-    expect(rows[5].html).toContain('<img src="blob:x"');
+    expect(rows.map((r) => r.cls)).toEqual(['ln h1', 'ln', 'ln quote', 'ln li', 'ln imgrow']);
+    expect(rows.map((r) => r.line)).toEqual([1, 2, 3, 4, 5]);
+    expect(rows[0].heading).toBe(true);
+    expect(rows[1].blank).toBe(true);
+    expect(rows[3].style).toContain('--li-mark');
+    expect(rows[4].html).toContain('<img src="blob:x"');
     // the markdown markers stay in the text, as on screen
-    expect(rows[1].html.replace(/<[^>]+>/g, '')).toBe('# 标题');
+    expect(rows[0].html.replace(/<[^>]+>/g, '')).toBe('# 标题');
   });
 
   it('shows a picture it cannot resolve as the editor does', () => {
     const rows = buildRows('![](gone.png)', () => null);
-    expect(rows[1].html).toContain('图片未找到 · gone.png');
-    expect(rows[1].html).not.toContain('<img');
+    expect(rows[0].html).toContain('图片未找到 · gone.png');
+    expect(rows[0].html).not.toContain('<img');
   });
 });

@@ -12,7 +12,7 @@ import type { EditorView } from '@codemirror/view';
 import { scrollCodeBlock } from '../editor/codescroll';
 import { loadLanguages } from '../editor/highlight';
 import { loadMath } from '../editor/math';
-import type { Platform } from '../platform/types';
+import type { PdfMode, Platform } from '../platform/types';
 import type { DocumentSession } from '../app/document';
 import type { SettingsStore } from '../app/settings';
 
@@ -27,7 +27,7 @@ export type SmokeCtx = {
   /** the text the word count currently displays */
   wordCount: () => string;
   /** lay the export pages out and print them into `path`; resolves with the page count */
-  printTo: (path: string) => Promise<number>;
+  printTo: (path: string, mode: PdfMode) => Promise<number>;
 };
 
 /** Returns right away, doing nothing, when no smoke output path is set. */
@@ -119,13 +119,13 @@ if (smoke?.dialog) {
   await ctx.platform.writeText(smoke.out + '.mainthread', JSON.stringify({ alive }));
 }
 if (smoke?.pdf) {
-  // The export through WKWebView's real print operation: the script checks the file exists and
-  // has as many pages as were laid out
-  let pdf: { pages: number; error?: string };
+  // The export through WKWebView's real print operation, in colour and in black & white: the
+  // script checks the files exist and have as many pages as were laid out
+  let pdf: { pages: number; bwPages: number; error?: string };
   try {
-    pdf = { pages: await ctx.printTo(smoke.out + '.pdf') };
+    pdf = { pages: await ctx.printTo(smoke.out + '.pdf', 'color'), bwPages: await ctx.printTo(smoke.out + '.bw.pdf', 'bw') };
   } catch (err) {
-    pdf = { pages: 0, error: String(err) };
+    pdf = { pages: 0, bwPages: 0, error: String(err) };
   }
   await ctx.platform.writeText(smoke.out + '.pdfinfo', JSON.stringify(pdf));
 }

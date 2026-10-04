@@ -107,6 +107,17 @@
       </div>
     </div>
   </div>
+  <!-- ⌘P asks which PDF first (features/export.ts: choosePdfMode); the last choice is primary -->
+  <div class="conflict" id="pdfmode">
+    <div class="cbox">
+      <div class="ctitle">导出 PDF</div>
+      <div class="ctext">彩色：与编辑器里看到的一样。<br>黑白：只用纯黑与纯白，适合打印（图片转为灰度）。</div>
+      <div class="cbtns">
+        <button class="cbtn" data-mode="bw" id="pdfbw">黑白</button>
+        <button class="cbtn" data-mode="color" id="pdfcolor">彩色</button>
+      </div>
+    </div>
+  </div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

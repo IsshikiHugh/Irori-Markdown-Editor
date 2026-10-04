@@ -1,6 +1,6 @@
 /* Export to PDF: the text as the editor shows it — paper, ink, font, heading sizes, quote
    rails, list grid, the visible markdown markers — laid out on A4 pages, without the
-   window chrome (TOC, minimap, title bar, drawer).
+   window chrome (TOC, minimap, title bar, drawer) or the head ornament.
 
    The editor itself cannot simply be printed: CodeMirror only keeps the lines on screen in
    the DOM. So the whole document is rebuilt from its text with the same row renderer the
@@ -13,9 +13,12 @@
    - the paper colour covers the whole sheet, margins included (engine page margins would
      be white), which is why the pages carry their own margins and the host prints with none.
 
-   `#print` is invisible on screen; only the print media shows it (style.css). */
+   `#print` is invisible on screen; only the print media shows it (style.css).
 
-import type { Platform } from '../platform/types';
+   Two modes: colour (as on screen) and black & white, for printers — every mark pure black on
+   pure white, no greys (style.css: `.pbw`); only pictures can't be split that way and go grey. */
+
+import type { PdfMode, Platform } from '../platform/types';
 import { highlightBlock, loadLanguages } from '../editor/highlight';
 import { basename } from '../platform/paths';
 import { codeLineDeco, decorateLine, fenceScan, imageLine, lineHTML, listScan, mathLineDeco, mathScan, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
@@ -28,34 +31,7 @@ export const PAGE_PAD = 72;
 /** usable height of a page — a hair under the arithmetic, so rounding can never add a page */
 export const PAGE_BODY = Math.floor(PAGE_H - 2 * PAGE_PAD) - 2;
 
-/** The editor's head ornament (style.css: .cm-content::before/::after) — two hairlines tapering
-    toward a hollow diamond — as a picture on the paper colour, in the same place. Not the CSS
-    itself: WebKit's PDF output breaks that 1px gradient (its transparent stretches come out black
-    and the taper is lost); a flat bitmap has nothing left to break. */
-function ornament(): string {
-  const k = 4; // drawn at 4× so it stays crisp in print
-  const canvas = document.createElement('canvas');
-  canvas.width = 260 * k;
-  canvas.height = 13 * k;
-  const g = canvas.getContext('2d');
-  if (!g) return '';
-  g.scale(k, k);
-  g.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim() || '#f7f3ec';
-  g.fillRect(0, 0, 260, 13);
-  const line = g.createLinearGradient(0, 0, 260, 0);
-  const stops: [number, number][] = [[0, 0], [0.42, 0.9], [0.465, 0], [0.535, 0], [0.58, 0.9], [1, 0]];
-  for (const [at, a] of stops) line.addColorStop(at, `rgba(195,183,164,${a})`);
-  g.fillStyle = line;
-  g.fillRect(0, 6, 260, 1);
-  g.translate(131, 7);
-  g.rotate(Math.PI / 4);
-  g.strokeStyle = 'rgba(162,123,92,.65)';
-  g.lineWidth = 1;
-  g.strokeRect(-3.5, -3.5, 7, 7);
-  return `<img src="${canvas.toDataURL()}" alt="">`;
-}
-
-/** `line`: the document line the row starts at (0 for the ornament) */
+/** `line`: the document line the row starts at */
 type Row = { html: string; cls: string; style: string; heading: boolean; blank: boolean; text: boolean; line: number };
 
 const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
@@ -65,8 +41,7 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
   const lines = text.split('\n');
   const rails = quoteScan(lines);
   const lists = listScan(lines);
-  // the head ornament opens the text, as on screen (its picture is drawn by preparePrint)
-  const rows: Row[] = [{ html: '', cls: 'porn', style: '', heading: false, blank: false, text: false, line: 0 }];
+  const rows: Row[] = [];
   // a table is one row, rendered; a page may still end between two of its rows (lineGaps)
   const tables = tableRanges((n) => lines[n - 1], lines.length);
   const code = fenceScan(lines);
@@ -141,9 +116,8 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
   return rows;
 }
 
-/** `data-line`: the row's line number in the document (the ornament has none) */
-const rowHTML = (r: Row) =>
-  `<div class="${r.cls}"${r.line ? ` data-line="${r.line}"` : ''}${r.style ? ` style="${r.style}"` : ''}>${r.html}</div>`;
+/** `data-line`: the row's line number in the document */
+const rowHTML = (r: Row) => `<div class="${r.cls}" data-line="${r.line}"${r.style ? ` style="${r.style}"` : ''}>${r.html}</div>`;
 
 /** Wait for every picture to settle (loaded or failed), so the rows can be measured. */
 async function settleImages(root: HTMLElement, timeout = 8000) {
@@ -239,15 +213,17 @@ export function paginate(rows: (Measured & { heading: boolean; blank: boolean })
 
 /** Build the print pages for `text` into #print (replacing any previous ones). Resolves once
     fonts and pictures have settled and the pages are laid out. Returns the page count. */
-export async function preparePrint(text: string, resolveAsset: (src: string) => string | null): Promise<number> {
+export async function preparePrint(text: string, resolveAsset: (src: string) => string | null, mode: PdfMode = 'color'): Promise<number> {
   document.getElementById('print')?.remove();
+  // on the root, so the print media's page background follows too; set before measuring, since
+  // the black & white code blocks trade padding for borders (same geometry, but measured anyway)
+  document.documentElement.classList.toggle('pbw', mode === 'bw');
   // the code blocks' languages, so they print coloured
   const lines = text.split('\n');
   const parts = fenceScan(lines);
   await loadLanguages(lines.filter((_, i) => parts[i] === 'open'));
   if (text.includes('$')) await loadMath();
   const rows = buildRows(text, resolveAsset);
-  rows[0].html = ornament();
 
   // measure off-screen, in the same column the editor uses
   const measure = document.createElement('div');
@@ -294,29 +270,77 @@ export async function preparePrint(text: string, resolveAsset: (src: string) => 
 
 export function clearPrint() {
   document.getElementById('print')?.remove();
+  document.documentElement.classList.remove('pbw');
+}
+
+/** Ask which PDF to make (the dialog #pdfmode): resolves with the choice, or null when it is
+    dismissed (Esc, a click beside the box). `initial` — the last choice — has the focus, so
+    Enter repeats it. */
+export function choosePdfMode(initial: PdfMode): Promise<PdfMode | null> {
+  const box = document.getElementById('pdfmode');
+  if (!box) return Promise.resolve(initial);
+  const buttons = [...box.querySelectorAll<HTMLButtonElement>('button[data-mode]')];
+  return new Promise((resolve) => {
+    const done = (mode: PdfMode | null) => {
+      box.classList.remove('open');
+      box.removeEventListener('keydown', onKey);
+      box.removeEventListener('mousedown', onDown);
+      for (const b of buttons) b.onclick = null;
+      resolve(mode);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        // handled here: the window's Esc (closing the drawer) must not fire as well
+        e.preventDefault();
+        e.stopPropagation();
+        done(null);
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        buttons[(at + (e.key === 'ArrowLeft' ? buttons.length - 1 : 1)) % buttons.length].focus();
+      }
+    };
+    const onDown = (e: MouseEvent) => {
+      if (e.target === box) done(null);
+    };
+    for (const b of buttons) {
+      b.classList.toggle('primary', b.dataset.mode === initial);
+      b.onclick = () => done(b.dataset.mode as PdfMode);
+    }
+    box.addEventListener('keydown', onKey);
+    box.addEventListener('mousedown', onDown);
+    box.classList.add('open');
+    buttons.find((b) => b.dataset.mode === initial)?.focus();
+  });
 }
 
 let busy = false;
 
-/** ⌘P: ask where to (when the host can write the file itself), lay the pages out, print them. */
+/** ⌘P: ask which mode and where to (when the host can write the file itself), lay the pages
+    out, print them. `remember` keeps the chosen mode for next time. */
 export async function exportPdf(
   platform: Platform,
   stemName: string,
   text: string,
   resolveAsset: (src: string) => string | null,
   toast: (msg: string) => void,
+  lastMode: PdfMode,
+  remember: (mode: PdfMode) => void,
 ): Promise<void> {
   if (busy) return;
   busy = true;
   let system = false;
   try {
+    const mode = await choosePdfMode(lastMode);
+    if (!mode) return;
+    remember(mode);
     let path: string | null = null;
     if (platform.writesPdf) {
       path = await platform.saveDialog(stemName + '.pdf', 'pdf');
       if (!path) return;
       toast('正在导出 PDF…');
     }
-    await preparePrint(text, resolveAsset);
+    await preparePrint(text, resolveAsset, mode);
     system = !path;
     await platform.printPdf(path);
     if (path) toast('已导出 ' + basename(path));

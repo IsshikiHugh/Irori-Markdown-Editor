@@ -15,6 +15,27 @@ const mod = async (page, key) => {
   await page.keyboard.up(MOD);
 };
 
+/** ⌘P asks colour or black & white first; wait for that dialog */
+const modeDialog = (page) => page.waitForFunction(() => document.getElementById('pdfmode').classList.contains('open'), { timeout: 5000 });
+
+/** Every visible mark on the pages that is neither pure black nor pure white (or transparent):
+    text colours, fills, borders. */
+const notBlackWhite = (page) =>
+  page.evaluate(() => {
+    const ok = (c) => !c || c === 'rgb(0, 0, 0)' || c === 'rgb(255, 255, 255)' || c === 'rgba(0, 0, 0, 0)' || /rgba\(.*, 0\)$/.test(c);
+    const bad = [];
+    for (const el of document.querySelectorAll('#print, #print *')) {
+      if (el.tagName === 'IMG') continue;
+      const cs = getComputedStyle(el);
+      const marks = [['color', cs.color], ['background', cs.backgroundColor]];
+      for (const side of ['Top', 'Right', 'Bottom', 'Left'])
+        if (parseFloat(cs[`border${side}Width`]) > 0 && cs[`border${side}Style`] !== 'none') marks.push([`border${side}`, cs[`border${side}Color`]]);
+      if (cs.backgroundImage !== 'none') marks.push(['backgroundImage', cs.backgroundImage]);
+      for (const [what, c] of marks) if (!ok(c)) bad.push(`${el.className || el.tagName} ${what} ${c}`);
+    }
+    return bad;
+  });
+
 /** Every visual line of every page: which document line it belongs to, and whether the page's
     clip cuts through it. */
 const pageLines = (page) =>
@@ -50,12 +71,15 @@ export const cases = [
       await page.evaluate(() => window.__irori.platform.dialogQueue.push('/n/out/长文.pdf'));
       await page.click('.cm-content');
       await mod(page, 'p');
+      await modeDialog(page);
+      await page.keyboard.press('Enter'); // colour: the default
       await page.waitForFunction(() => window.__irori.platform.pdfs.length > 0, { timeout: 10000 });
       const r = await page.evaluate(() => ({
         pdfs: window.__irori.platform.pdfs,
         file: window.__irori.platform.files.has('/n/out/长文.pdf'),
       }));
       t.eq('exported once, to the chosen path', r.pdfs.map((p) => p.path), ['/n/out/长文.pdf']);
+      t.eq('in colour', r.pdfs[0].bw, false);
       t.ok('the long document spans several pages', r.pdfs[0].pages >= 3, r.pdfs[0].pages);
       t.ok('the file was written', r.file, '');
       await sleep(50);
@@ -71,7 +95,10 @@ export const cases = [
     async run(t, ctx) {
       const page = await ctx.open(seed);
       await page.click('.cm-content');
-      await mod(page, 'p'); // dialogQueue is empty → the dialog answers "cancel"
+      await mod(page, 'p');
+      await modeDialog(page);
+      await page.keyboard.press('Enter');
+      // dialogQueue is empty → the save dialog answers "cancel"
       await sleep(300);
       t.eq('nothing exported', await page.evaluate(() => window.__irori.platform.pdfs.length), 0);
       t.ok('no print pages left behind', !(await page.evaluate(() => !!document.getElementById('print'))), '');
@@ -81,6 +108,8 @@ export const cases = [
       });
       await sleep(300);
       await page.click('#pdfbtn');
+      await modeDialog(page);
+      await page.click('#pdfcolor');
       await page.waitForFunction(() => window.__irori.platform.pdfs.length > 0, { timeout: 10000 });
       t.eq('the button exported', await page.evaluate(() => window.__irori.platform.pdfs[0].path), '/n/b.pdf');
       t.ok('and closed the drawer', !(await page.evaluate(() => document.body.classList.contains('menuopen'))), '');
@@ -173,6 +202,73 @@ export const cases = [
       t.eq('one PDF page per laid-out page', sheets, n);
       const box = raw.match(/\/MediaBox\s*\[\s*0 0 ([\d.]+) ([\d.]+)\s*\]/);
       t.ok('A4 sheets', box && Math.abs(+box[1] - 595.3) < 1 && Math.abs(+box[2] - 841.9) < 1, box && box[0]);
+    },
+  },
+  {
+    id: 'B-105',
+    name: 'The mode dialog: Enter repeats the last choice, Esc exports nothing, the choice is remembered',
+    async run(t, ctx) {
+      const page = await ctx.open(seed);
+      await page.click('.cm-content');
+      await mod(page, 'p');
+      await modeDialog(page);
+      t.eq('colour is the first default', await page.evaluate(() => document.activeElement.id), 'pdfcolor');
+      await page.keyboard.press('Escape');
+      await sleep(200);
+      const r = await page.evaluate(() => ({
+        open: document.getElementById('pdfmode').classList.contains('open'),
+        pdfs: window.__irori.platform.pdfs.length,
+      }));
+      t.eq('Esc closes it and exports nothing', r, { open: false, pdfs: 0 });
+
+      await page.evaluate(() => window.__irori.platform.dialogQueue.push('/n/bw.pdf'));
+      await mod(page, 'p');
+      await modeDialog(page);
+      await page.keyboard.press('ArrowLeft');
+      t.eq('arrows move between the choices', await page.evaluate(() => document.activeElement.id), 'pdfbw');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => window.__irori.platform.pdfs.length > 0, { timeout: 10000 });
+      t.eq('exported in black & white', await page.evaluate(() => (({ path, bw }) => ({ path, bw }))(window.__irori.platform.pdfs[0])), { path: '/n/bw.pdf', bw: true });
+      t.eq('the choice is kept in the settings', await page.evaluate(() => window.__irori.settings.value.pdfMode), 'bw');
+      t.ok('nothing of black & white lingers afterwards', !(await page.evaluate(() => document.documentElement.classList.contains('pbw'))), '');
+
+      await mod(page, 'p');
+      await modeDialog(page);
+      const next = await page.evaluate(() => ({ focus: document.activeElement.id, primary: document.querySelector('#pdfmode .primary').id }));
+      t.eq('next time black & white is the default', next, { focus: 'pdfbw', primary: 'pdfbw' });
+      await page.mouse.click(5, 5); // beside the box
+      await sleep(200);
+      t.ok('a click beside the box dismisses it', !(await page.evaluate(() => document.getElementById('pdfmode').classList.contains('open'))), '');
+      t.eq('still one export', await page.evaluate(() => window.__irori.platform.pdfs.length), 1);
+    },
+  },
+  {
+    id: 'B-106',
+    name: 'Black & white pages: pure black on pure white, no greys — same pages, same line wrapping',
+    async run(t, ctx) {
+      const code = ['', '```js', 'const answer = 42; // a comment', '```', '', '| a | b |', '| - | - |', '| 1 | 2 |', '', '行内 $x^2$ 与 `code`', ''];
+      const page = await ctx.open({ ...seed, files: { '/n/长文.md': DOC + code.join('\n') } });
+      const layout = () =>
+        page.evaluate(() => [...document.querySelectorAll('#print .pg')].map((pg) => [...pg.querySelectorAll('[data-line]')].map((r) => `${r.dataset.line}:${Math.round(r.getBoundingClientRect().height)}`).join(' ')));
+      const colour = await page.evaluate(() => window.__irori.preparePrint('color'));
+      await page.emulateMediaType('print');
+      const colourLayout = await layout();
+      t.ok('the colour pages do have colour', (await notBlackWhite(page)).length > 0, '');
+      await page.emulateMediaType('screen');
+      const bw = await page.evaluate(() => window.__irori.preparePrint('bw'));
+      await page.emulateMediaType('print');
+      t.eq('same number of pages', bw, colour);
+      t.eq('every row on the same page, at the same height', await layout(), colourLayout);
+      t.eq('no mark is anything but black or white', await notBlackWhite(page), []);
+      const s = await page.evaluate(() => ({
+        paper: getComputedStyle(document.querySelector('#print .pg')).backgroundColor,
+        body: getComputedStyle(document.body).backgroundColor,
+        frame: getComputedStyle(document.querySelector('#print .ln.cb.cbopen')).borderTopColor,
+        rail: getComputedStyle(document.querySelector('#print .ln.quote')).borderLeftColor,
+        img: getComputedStyle(document.querySelector('#print .imgwrap img')).filter,
+      }));
+      t.eq('white paper, black frames and rails, grey pictures', s, { paper: 'rgb(255, 255, 255)', body: 'rgb(255, 255, 255)', frame: 'rgb(0, 0, 0)', rail: 'rgb(0, 0, 0)', img: 'grayscale(1)' });
+      t.ok('no head ornament on the pages', !(await page.evaluate(() => document.querySelector('#print img:not(.imgwrap img)'))), '');
     },
   },
 ];
