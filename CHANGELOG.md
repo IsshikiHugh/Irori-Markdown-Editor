@@ -1,5 +1,22 @@
 # 更新记录
 
+## v0.1.17 — 2026-10-28
+
+### 书写
+
+- **任务列表可以点了**：列表标记后面紧跟的 `[ ]`（如 `- [ ] 买菜`、`1. [ ] …`）点一下变成 `[x]`，再点一下变回 `[ ]`。只改括号里那一个字符，光标不动，`⌘Z` 可以撤回。任务框用等宽字体显示，勾上后后面的文字不会跳动。
+
+### 安装
+
+- 已安装 v0.1.7 或更新版本的，打开 Irori 后会收到更新提示，点「更新」即可。
+- **macOS**：`Irori_0.1.17_aarch64.dmg`（Apple Silicon）、`Irori_0.1.17_x64.dmg`（Intel）
+- **Windows**：`Irori_0.1.17_x64-setup.exe` 或 `Irori_0.1.17_x64_en-US.msi`，任选其一
+- **Linux**：`.deb`、`.rpm` 与 `.AppImage`
+
+安装包尚未签名。macOS 若提示应用「已损坏」，可在终端执行
+`xattr -dr com.apple.quarantine /Applications/Irori.app` 后再打开；
+Windows 若出现 SmartScreen 提示，选择「更多信息 → 仍要运行」。
+
 ## v0.1.16 — 2026-10-28
 
 ### 修复
