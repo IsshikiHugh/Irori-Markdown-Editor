@@ -1,5 +1,22 @@
 # 更新记录
 
+## v0.1.15 — 2026-10-28
+
+### 修复
+
+- **文档里有大 GIF 时不再卡顿**：右侧缩略图里的图片改为静态显示（只显示第一帧），正文里的 GIF 照常播放。之前缩略图会把 GIF 再缩小播放一遍，而且每敲一个字都重新加载它，文件一大，不打字时也会掉帧，打字更是明显卡顿。
+
+### 安装
+
+- 已安装 v0.1.7 或更新版本的，打开 Irori 后会收到更新提示，点「更新」即可。
+- **macOS**：`Irori_0.1.15_aarch64.dmg`（Apple Silicon）、`Irori_0.1.15_x64.dmg`（Intel）
+- **Windows**：`Irori_0.1.15_x64-setup.exe` 或 `Irori_0.1.15_x64_en-US.msi`，任选其一
+- **Linux**：`.deb`、`.rpm` 与 `.AppImage`
+
+安装包尚未签名。macOS 若提示应用「已损坏」，可在终端执行
+`xattr -dr com.apple.quarantine /Applications/Irori.app` 后再打开；
+Windows 若出现 SmartScreen 提示，选择「更多信息 → 仍要运行」。
+
 ## v0.1.14 — 2026-10-04
 
 ### 书写
