@@ -30,6 +30,9 @@ export function createTOC(
   view: EditorView,
   list: HTMLElement,
   spyLine: () => number,
+  /** where a clicked heading lands, in px below the top of the scroller: near the top normally,
+      the top of the focus band in focus mode (above it the text is faded) */
+  landAt: () => number,
   glide: Glide,
   /** focus the text without changing the scroll position (WebKit would scroll the caret into
       view, which interrupts this jump) */
@@ -40,9 +43,16 @@ export function createTOC(
       scroll in between (deleting the end of the text scrolls) must not ask for a position past
       the end of the shorter document — CodeMirror throws on that. */
   const at = (h: Heading) => Math.min(h.pos, view.state.doc.length);
+  const target = (h: Heading) => view.lineBlockAt(at(h)).top + view.documentPadding.top - landAt();
+  /** The entry the user clicked stays highlighted while the view glides to it and rests there,
+      even where the scroll position alone would pick another one (a short section, or a heading
+      near the end that cannot scroll up to the line). The user scrolling away releases it. */
+  let pinned: Heading | null = null;
 
   function rebuild() {
     heads = scanHeadings(view.state.doc);
+    // the list is rebuilt after an edit; the pinned entry may be gone or moved
+    pinned = null;
     list.innerHTML = '';
     for (const h of heads) {
       const li = document.createElement('li');
@@ -52,9 +62,11 @@ export function createTOC(
       a.textContent = h.text;
       a.onclick = (e) => {
         e.preventDefault();
+        pinned = h;
         // glide there instead of teleporting: the same ease-in/ease-out curve (features/glide.ts)
-        glide.to(() => view.lineBlockAt(at(h)).top + view.documentPadding.top - 20);
+        glide.to(() => target(h));
         focusEditor();
+        spy();
       };
       li.appendChild(a);
       list.appendChild(li);
@@ -63,12 +75,22 @@ export function createTOC(
   }
 
   function spy() {
+    if (pinned) {
+      const el = view.scrollDOM;
+      const want = Math.max(0, Math.min(el.scrollHeight - el.clientHeight, target(pinned)));
+      if (glide.running() || Math.abs(el.scrollTop - want) <= 2) return mark(heads.indexOf(pinned));
+      pinned = null;
+    }
     const line = spyLine();
     let idx = -1;
     heads.forEach((h, i) => {
       const y = view.documentTop + view.lineBlockAt(at(h)).top;
       if (y <= line) idx = i;
     });
+    mark(idx);
+  }
+
+  function mark(idx: number) {
     list.querySelectorAll('.toc-link').forEach((a, i) => a.classList.toggle('active', i === idx));
   }
 

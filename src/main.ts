@@ -294,6 +294,7 @@ async function boot() {
     view,
     $('toc'),
     () => (focus.isOn() ? focus.bandPx().top : view.scrollDOM.getBoundingClientRect().top + view.scrollDOM.clientHeight / 6),
+    () => (focus.isOn() ? focus.bandPx().top - view.scrollDOM.getBoundingClientRect().top : 20),
     glide,
     () => focusEditor(),
   );

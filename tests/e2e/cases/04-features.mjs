@@ -178,6 +178,53 @@ export const cases = [
     },
   },
   {
+    id: 'B-31d',
+    name: 'focus mode: a TOC jump lands the heading on the focus band, and the clicked entry is the highlighted one',
+    async run(t, ctx) {
+      // short sections: several headings fit between the top of the view and the band
+      const short = ['# 顶部', '', ...Array.from({ length: 160 }, (_, i) => (i % 3 === 0 ? `## 短节 ${i / 3 + 1}` : `第 ${i} 行`))].join('\n');
+      const page = await ctx.open({ files: { '/n/s.md': short }, startup: '/n/s.md' });
+      await sleep(300);
+      await page.evaluate(() => window.__irori.focus.setOn(true));
+      await settled(page);
+      const jump = (i) =>
+        page.evaluate(async (i) => {
+          const links = [...document.querySelectorAll('#toc .toc-link')];
+          links[i].click();
+          await window.__settle();
+          const v = window.__irori.view;
+          const heads = [];
+          for (let n = 1; n <= v.state.doc.lines; n++) if (/^#{1,3}\s/.test(v.state.doc.line(n).text)) heads.push(v.state.doc.line(n).from);
+          const y = v.documentTop + v.lineBlockAt(heads[i]).top;
+          return {
+            dy: y - window.__irori.focus.bandPx().top,
+            clicked: links[i].textContent,
+            active: document.querySelector('#toc .toc-link.active')?.textContent ?? null,
+          };
+        }, i);
+      await page.evaluate(() => {
+        window.__settle = async () => {
+          const until = (f) => new Promise((r) => { const tick = () => (f() ? r() : requestAnimationFrame(tick)); tick(); });
+          await new Promise((r) => setTimeout(r, 50));
+          await until(() => !window.__irori.glide.running());
+          await new Promise((r) => setTimeout(r, 150));
+        };
+      });
+      const mid = await jump(20);
+      t.ok('the heading lands on the top of the focus band', Math.abs(mid.dy) <= 3, mid.dy.toFixed(1));
+      t.eq('the clicked entry is highlighted', mid.active, mid.clicked);
+      // the last heading cannot always scroll up to the line; it is still the one highlighted
+      const n = await page.evaluate(() => document.querySelectorAll('#toc .toc-link').length);
+      const last = await jump(n - 1);
+      t.eq('the last entry, once clicked, is highlighted', last.active, last.clicked);
+      // scrolling away by hand hands the highlight back to the scroll position
+      await page.evaluate(() => (window.__irori.view.scrollDOM.scrollTop = 0));
+      await sleep(200);
+      const top = await page.evaluate(() => document.querySelector('#toc .toc-link.active')?.textContent ?? null);
+      t.eq('after scrolling back to the top, the first entry is highlighted', top, '顶部');
+    },
+  },
+  {
     id: 'B-32b',
     name: 'minimap stays aligned with the viewport in focus mode (the extra top padding must be accounted for)',
     async run(t, ctx) {
