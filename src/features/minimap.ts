@@ -49,6 +49,9 @@ export function createMinimap(
   /** what the clone currently shows — re-rendering it on every scroll frame would be
       the one place where a long document actually costs something */
   let painted = { from: -1, to: -1, width: 0, scale: 0 };
+  /** the pictures the clone shows, by url, kept across repaints: the clone is rebuilt on every
+      keystroke, and loading the file afresh each time made typing stutter with a large GIF */
+  let pictures = new Map<string, HTMLCanvasElement[]>();
 
   const scroller = () => view.scrollDOM;
   const padTop = () => view.documentPadding.top;
@@ -115,6 +118,8 @@ export function createMinimap(
     const maths = mathRanges((n) => doc.line(n).text, doc.lines).filter((r) => r.to >= fromLine && r.from <= toLine);
 
     const parts: string[] = [];
+    /** the url of each picture row, in order */
+    const wanted: string[] = [];
     let rows = 0;
     for (let n = fromLine; n <= toLine && rows < MAX_ROWS; n++, rows++) {
       const table = tables.find((t) => n >= t.from && n <= t.to);
@@ -170,9 +175,9 @@ export function createMinimap(
       let inner: string;
       if (img) {
         const url = img.src ? resolveAsset(img.src) : null;
-        inner = url
-          ? `<span class="imgwrap"><img src="${escapeAttr(url)}" alt=""></span>`
-          : `<span class="imgwrap"><span class="imgmiss"></span></span>`;
+        // the picture itself is put in after the rows are built (see below), reused if it was shown before
+        inner = url ? `<span class="imgwrap" data-pic></span>` : `<span class="imgwrap"><span class="imgmiss"></span></span>`;
+        if (url) wanted.push(url);
         cls.push('imgrow');
       } else {
         inner = lineHTML(text, deco, inlineMath);
@@ -180,6 +185,14 @@ export function createMinimap(
       parts.push(`<div class="${cls.join(' ')}" style="top:${y.toFixed(2)}px;${style}">${inner}</div>`);
     }
     content.innerHTML = parts.join('');
+    const kept = new Map<string, HTMLCanvasElement[]>();
+    content.querySelectorAll<HTMLElement>('[data-pic]').forEach((slot, i) => {
+      const url = wanted[i];
+      const pic = pictures.get(url)?.shift() ?? still(url);
+      slot.appendChild(pic);
+      kept.set(url, [...(kept.get(url) ?? []), pic]);
+    });
+    pictures = kept;
   }
 
   function layout() {
@@ -245,4 +258,27 @@ export function createMinimap(
   };
 }
 
-const escapeAttr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+/** widest still kept for the thumbnail, in pixels — it is drawn at about a sixth of its size */
+const STILL_WIDTH = 480;
+
+/** A picture as the thumbnail shows it: its first frame, drawn once onto a canvas. At this size an
+    animated GIF need not play, and playing one costs the webview a decode of every frame. */
+function still(url: string): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = c.height = 0;
+  const im = new Image();
+  im.onload = () => {
+    const w = im.naturalWidth;
+    const h = im.naturalHeight;
+    if (!w || !h) return;
+    const k = Math.min(1, STILL_WIDTH / w);
+    c.width = Math.max(1, Math.round(w * k));
+    c.height = Math.max(1, Math.round(h * k));
+    // laid out at the picture's own width, as the editor shows it; the height follows the ratio
+    c.style.width = w + 'px';
+    c.style.aspectRatio = `${w} / ${h}`; // the exact ratio, not the rounded canvas size
+    c.getContext('2d')?.drawImage(im, 0, 0, c.width, c.height);
+  };
+  im.src = url;
+  return c;
+}

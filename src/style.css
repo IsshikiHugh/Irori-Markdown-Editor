@@ -238,7 +238,7 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .mini{user-select:none;-webkit-user-select:none;position:fixed;right:0;top:0;bottom:0;width:112px;border-left:1px solid var(--line);background:#faf6f0;overflow:hidden;z-index:8;}
 .mini .content{position:absolute;top:10px;left:10px;transform-origin:top left;pointer-events:none;color:#8a8178;font-size:19px;line-height:2.05;}
 .mini .content .ln{position:absolute;left:0;right:0;}
-.mini .content img{max-width:100%;height:auto;} .mini .content .imgsrc,.mini .content .imgmiss{display:none;}
+.mini .content canvas{display:block;max-width:100%;height:auto;border-radius:2px;} .mini .content .imgsrc,.mini .content .imgmiss{display:none;}
 .mini.noscroll .vp,.mini.noscroll .vp:active{cursor:default;background:rgba(162,123,92,.12);}
 .mini .vp{position:absolute;left:0;right:0;background:rgba(162,123,92,.2);border:none;cursor:grab;} .mini .vp:active{cursor:grabbing;background:rgba(162,123,92,.28);}
 
