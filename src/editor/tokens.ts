@@ -158,8 +158,12 @@ export function decorateLine(text: string): LineDeco {
     const lead = ind + li.marker.length + li.gap.length;
     const marks: Mark[] = ind ? [{ from: 0, to: ind, cls: 'lind' }] : [];
     marks.push({ from: ind, to: lead, cls: li.ordered ? 'lnum' : 'lmark' });
+    // a task box "[ ]" / "[x]" right after the marker is clickable (tasks.ts)
+    const box = taskBox(text);
+    const rest = box ? box.to : lead;
+    if (box) marks.push({ from: box.from, to: box.to, cls: box.done ? 'task done' : 'task' });
     // the rest is decorated on its own, so a "* " bullet can never pair up with a later "*"
-    return { lineClass: 'li', marks: [...marks, ...inlineMarks(text.slice(lead), lead)] };
+    return { lineClass: 'li', marks: [...marks, ...inlineMarks(text.slice(rest), rest)] };
   }
   return { lineClass: '', marks: inlineMarks(text) };
 }
@@ -182,6 +186,17 @@ export function listItem(text: string): ListItem | null {
   const m = RE_LIST.exec(text);
   if (!m || RE_HR.test(text)) return null;
   return { indent: m[1], marker: m[2], gap: m[3], ordered: m[2].length > 1 };
+}
+
+const RE_TASK = /^\[([ xX])\](?=[ \t]|$)/;
+
+/** The task box of a list item ("- [ ] a", "1. [x] b"), as offsets in the line; `done` when checked. */
+export function taskBox(text: string): { from: number; to: number; done: boolean } | null {
+  const li = listItem(text);
+  if (!li) return null;
+  const at = li.indent.length + li.marker.length + li.gap.length;
+  const m = RE_TASK.exec(text.slice(at));
+  return m ? { from: at, to: at + 3, done: m[1] !== ' ' } : null;
 }
 
 /** Source columns of a run of blanks starting at column `at` (a tab advances to the next multiple of 4). */

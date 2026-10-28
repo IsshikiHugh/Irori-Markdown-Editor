@@ -41,6 +41,23 @@ export const cases = [
     },
   },
   {
+    id: 'B-107',
+    name: 'A click on a task box checks it ("[ ]" → "[x]"), a second click clears it, undo takes it back',
+    async run(t, ctx) {
+      const page = await ctx.open({ files: { '/n/a.md': '- [ ] 一\n- [x] 二\n' }, startup: '/n/a.md' });
+      await setCaret(page, 0);
+      await page.waitForSelector('.cm-content .task');
+      const box = async (i) => (await page.$$('.cm-content .task'))[i]; // the line is drawn again after each click
+      await (await box(0)).click();
+      t.eq('the blank becomes an x', await docText(page), '- [x] 一\n- [x] 二\n');
+      t.eq('the caret stays put', await caret(page), 0);
+      await (await box(1)).click();
+      t.eq('a checked box clears', await docText(page), '- [x] 一\n- [ ] 二\n');
+      await mod(page, 'z');
+      t.eq('undo takes the click back', await docText(page), '- [x] 一\n- [x] 二\n');
+    },
+  },
+  {
     id: 'B-22',
     name: 'Undo / redo',
     async run(t, ctx) {

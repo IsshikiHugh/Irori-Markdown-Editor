@@ -19,6 +19,7 @@ import { imageNavKeymap } from './image-nav';
 import { continueList } from './lists';
 import { selectBlockThenAll } from './select-block';
 import { linkClicks, setLinkOpener } from './links';
+import { taskClicks } from './tasks';
 import { multiCursor } from './multi-cursor';
 
 export type EditorHooks = {
@@ -161,6 +162,7 @@ export function createEditor(parent: HTMLElement, doc: string, hooks: EditorHook
         sourceDecoration,
         codeScroll,
         linkClicks,
+        taskClicks,
         imeClass,
         imagePaste,
         caretLife,

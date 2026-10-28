@@ -148,6 +148,14 @@ describe('lists', () => {
     expect(decorateLine('10. a').marks[0]).toEqual({ from: 0, to: 4, cls: 'lnum' });
   });
 
+  it('marks a task box right after the marker, and only there', () => {
+    expect(decorateLine('- [ ] a').marks).toContainEqual({ from: 2, to: 5, cls: 'task' });
+    expect(decorateLine('  1. [x] a').marks).toContainEqual({ from: 5, to: 8, cls: 'task done' });
+    expect(decorateLine('- [X]').marks).toContainEqual({ from: 2, to: 5, cls: 'task done' });
+    for (const s of ['- [x](url)', '- a [ ] b', '[ ] a', '- [y] a', '> - [ ] a'])
+      expect(decorateLine(s).marks.some((m) => m.cls.startsWith('task')), s).toBe(false);
+  });
+
   it('sizes every number box of a list by its longest number, so the dots line up', () => {
     const rows = listScan(['9. a', '10. b', '11. c']);
     expect(rows).toEqual([

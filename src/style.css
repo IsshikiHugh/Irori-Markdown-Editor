@@ -129,6 +129,9 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .lind{min-width:calc(var(--li-ind,0) * var(--lc));}
 .lmark,.lnum{min-width:calc(var(--li-mark,0) * var(--lc));text-align:right;color:var(--accent);}
 .lmark{font-weight:700;}
+/* a task box "[ ]" / "[x]": monospace, so checking it does not shift the text after it; a click toggles it (tasks.ts) */
+.task{font-family:ui-monospace,Menlo,monospace;font-size:.88em;color:var(--accent);border-radius:4px;cursor:pointer;}
+.cm-content .task:hover{background:var(--accent-soft);}
 .ln.morecomment{color:#b3a892;font-size:13px;letter-spacing:.5px;}
 .tok{color:var(--tok);}
 .b{font-weight:700;} .i{font-style:italic;}
