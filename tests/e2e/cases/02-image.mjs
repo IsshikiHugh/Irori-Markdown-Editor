@@ -139,4 +139,36 @@ export const cases = [
       t.eq('what is shown is the source', src, '![一张图](a/pic.png)');
     },
   },
+  {
+    id: 'B-108',
+    name: 'An image in a list (an item, or an item\'s indented line) renders, with the marker in front and the picture at the text column',
+    async run(t, ctx) {
+      const doc = ['- 文字', '- ![](a/pic.png)', '1. ![](a/pic.png)', '   ![](a/pic.png)', '', '结尾'].join('\n');
+      const page = await ctx.open({ files: { '/n/a.md': doc }, images: { '/n/a/pic.png': PNG }, startup: '/n/a.md' });
+      await caretToLine(page, 6);
+      await page.waitForFunction(() => document.querySelectorAll('.cm-content .imgwrap img').length === 3);
+      const info = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('.cm-content .imgrow.li')];
+        // the item's text column: where the hanging indent puts the text after the marker
+        const column = (r) => r.getBoundingClientRect().left + parseFloat(getComputedStyle(r).paddingLeft);
+        const plain = document.querySelector('.cm-content .cm-line.li');
+        return {
+          rows: rows.length,
+          markers: rows.map((r) => r.querySelector('.lmark,.lnum')?.textContent ?? ''),
+          imgX: rows.map((r) => Math.round(r.querySelector('img').getBoundingClientRect().left - column(r))),
+          // "- " items line up with each other, picture or text
+          bullet: Math.round(column(rows[0]) - column(plain)),
+        };
+      });
+      t.eq('three list rows show a picture', info.rows, 3);
+      t.eq('the markers stay (none on the continuation line)', info.markers, ['- ', '1. ', '']);
+      t.ok('each picture starts at its item\'s text column', info.imgX.every((d) => Math.abs(d) <= 1), JSON.stringify(info.imgX));
+      t.eq('a picture item and a text item share the text column', info.bullet, 0);
+      await caretToLine(page, 2);
+      await page.waitForFunction(() => document.querySelectorAll('.cm-content .imgwrap img').length === 2);
+      t.ok('the caret line is source', await page.evaluate(() =>
+        [...document.querySelectorAll('.cm-content .cm-line')].some((l) => l.textContent === '- ![](a/pic.png)')), '');
+      t.eq('document not rewritten', await docText(page), doc);
+    },
+  },
 ];

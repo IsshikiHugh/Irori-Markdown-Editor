@@ -15,14 +15,13 @@ import { EditorSelection, EditorState } from '@codemirror/state';
 import type { Extension, SelectionRange } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import type { MouseSelectionStyle } from '@codemirror/view';
-import { imageLine } from './tokens';
-import { inCode, inMath, inTable } from './decorations';
+import { inMath, inTable, isImage } from './decorations';
 
 const isColumnDrag = (e: MouseEvent) => e.button === 1 || (e.button === 0 && e.altKey && e.shiftKey);
 
 /** a line shown as a picture, a table or a formula (while no caret is in it) */
 function rendered(state: EditorState, n: number): boolean {
-  return (!!imageLine(state.doc.line(n).text) && !inCode(state, n)) || !!inTable(state, n) || !!inMath(state, n);
+  return isImage(state, n) || !!inTable(state, n) || !!inMath(state, n);
 }
 
 function columnStyle(view: EditorView, start: MouseEvent): MouseSelectionStyle {

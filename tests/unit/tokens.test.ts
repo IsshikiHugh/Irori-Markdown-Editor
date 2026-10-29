@@ -6,6 +6,7 @@ import {
   fenceScan,
   imageLine,
   inlineMarks,
+  leadHTML,
   lineHTML,
   linkAt,
   linkParts,
@@ -55,6 +56,27 @@ describe('inline decoration', () => {
       .map((m) => m.cls)
       .sort();
     expect(cls).toEqual(['b', 'i']);
+  });
+
+  it('strikes through ~~text~~, not its tildes', () => {
+    const text = 'a ~~b c~~ d';
+    expect(classesAt(text, 2)).toEqual(['tok']);
+    expect(classesAt(text, 4)).toEqual(['s']);
+    expect(classesAt(text, 7)).toEqual(['tok']);
+    expect(classesAt(text, 10)).toEqual([]);
+  });
+
+  it('lets a strike hold emphasis and links, and sit in bold', () => {
+    expect(classesAt('~~**b**~~', 4)).toEqual(['b', 's']);
+    expect(classesAt('**~~b~~**', 4)).toEqual(['b', 's']);
+    const text = '~~[a](u)~~';
+    expect(classesAt(text, 3)).toEqual(['lnk', 's']);
+    expect(text.slice(...(([l]) => [l.head.from, l.tail.to])(linkParts(text, inlineMarks(text))))).toBe('[a](u)');
+  });
+
+  it('does not strike inside code, a formula or a URL, nor across a bold edge', () => {
+    for (const text of ['`~~a~~`', '$~~a~~$', '[x](~~a~~)', '**a ~~b** c~~', '~~ a~~', '~~~~'])
+      expect(inlineMarks(text).some((m) => m.cls === 's'), text).toBe(false);
   });
 
   it('inline code wins over emphasis inside it', () => {
@@ -198,13 +220,29 @@ describe('lists', () => {
 
 describe('image lines', () => {
   it('recognises a bare image line', () => {
-    expect(imageLine('![alt](a/b.png)')).toEqual({ quote: '', alt: 'alt', src: 'a/b.png' });
+    expect(imageLine('![alt](a/b.png)')).toEqual({ quote: '', lead: 0, alt: 'alt', src: 'a/b.png' });
   });
   it('recognises an image inside a quote', () => {
     expect(imageLine('> ![](x.png)')?.quote).toBe('> ');
   });
   it('ignores an image with text around it', () => {
     expect(imageLine('看 ![](x.png)')).toBeNull();
+  });
+  it('recognises an image that is a list item, or an item\'s continuation line', () => {
+    const doc = ['- ![a](x.png)', '1. ![](y.png)', '   ![](z.png)', '- [ ] ![](t.png)', '', '  ![](w.png)'];
+    const rows = listScan(doc);
+    expect(imageLine(doc[0], rows[0])).toEqual({ quote: '', lead: 2, alt: 'a', src: 'x.png' });
+    expect(imageLine(doc[1], rows[1])?.lead).toBe(3);
+    expect(imageLine(doc[2], rows[2])).toEqual({ quote: '', lead: 3, alt: '', src: 'z.png' });
+    expect(imageLine(doc[3], rows[3])).toBeNull(); // a task item keeps its text
+    // without a list row (an indented line outside a list) it is not an image line
+    expect(imageLine(doc[0])).toBeNull();
+    expect(imageLine('  ![](w.png)', null)).toBeNull();
+  });
+  it('keeps the list marker in front of the picture', () => {
+    const text = '10. ![](y.png)';
+    const { deco } = withListRow(text, decorateLine(text), { ind: 0, mark: 4 });
+    expect(leadHTML(text, 4, deco)).toBe('<span class="lnum">10. </span>');
   });
 });
 

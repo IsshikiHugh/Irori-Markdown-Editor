@@ -27,8 +27,11 @@ import {
   blockRanges,
   imageLine,
   isQuoteReset,
+  leadHTML,
   linkParts,
   listRows,
+  listScan,
+  maybeListImage,
   mathLineDeco,
   quoteStep,
   QUOTE_START,
@@ -36,7 +39,7 @@ import {
   tableSourceDeco,
   withListRow,
 } from './tokens';
-import type { MathRange, QuoteState } from './tokens';
+import type { ListRow, MathRange, QuoteState } from './tokens';
 import { isOpenClick, openLink } from './links';
 import { highlightBlock, onLanguageLoaded } from './highlight';
 import { onMathLoaded, renderMath } from './math';
@@ -100,16 +103,21 @@ class ImageWidget extends WidgetType {
     readonly src: string,
     /** the line is part of a blockquote rail — the picture keeps the left border */
     readonly railed: boolean,
+    /** in a list: the list markup in front of the picture, and the row's grid widths */
+    readonly lead = '',
+    readonly style = '',
   ) {
     super();
   }
   override eq(other: ImageWidget) {
-    return other.raw === this.raw && other.railed === this.railed;
+    return other.raw === this.raw && other.railed === this.railed && other.style === this.style;
   }
   /** A block widget REPLACES the line element, so it carries the line's own classes. */
   override toDOM() {
     const row = document.createElement('div');
-    row.className = 'ln imgrow' + (this.railed ? ' quote' : '');
+    row.className = 'ln imgrow' + (this.railed ? ' quote' : '') + (this.lead ? ' li' : '');
+    if (this.style) row.setAttribute('style', this.style);
+    if (this.lead) row.innerHTML = this.lead;
     const wrap = document.createElement('span');
     wrap.className = 'imgwrap';
     const cap = document.createElement('span');
@@ -279,7 +287,14 @@ function caretLines(state: EditorState): Set<number> {
 }
 
 type Span = { from: number; to: number };
-type Blocks = { deco: DecorationSet; tables: Span[]; fences: (Span & { closed: boolean })[]; maths: MathRange[] };
+type Blocks = {
+  deco: DecorationSet;
+  tables: Span[];
+  fences: (Span & { closed: boolean })[];
+  maths: MathRange[];
+  /** lines that are a lone image, shown as the picture or (with a caret on them) as source */
+  images: Set<number>;
+};
 
 function buildBlocks(state: EditorState): Blocks {
   const b = new RangeSetBuilder<Decoration>();
@@ -294,6 +309,9 @@ function buildBlocks(state: EditorState): Blocks {
   let k = 0;
   let n = 0;
   let st = QUOTE_START;
+  const images = new Set<number>();
+  // list rows, worked out only once a line might be an image in a list
+  let lists: (ListRow | null)[] | null = null;
   for (const line of texts) {
     n++;
     const hit = quoteStep(st, line);
@@ -338,16 +356,27 @@ function buildBlocks(state: EditorState): Blocks {
     while (fences[f] && fences[f].to < n) f++;
     if (fences[f] && n >= fences[f].from) continue; // code: an image line in it is just code
     if (line.length < 5 || line.indexOf('![') < 0) continue; // cheap reject for the common case
-    const img = imageLine(line);
-    if (!img || live.has(n)) continue;
+    let row: ListRow | null = null;
+    if (maybeListImage(line)) row = (lists ??= listScan(texts))[n - 1];
+    const img = imageLine(line, row);
+    if (!img) continue;
+    images.add(n);
+    if (live.has(n)) continue;
     const l = doc.line(n);
+    let lead = '';
+    let style = '';
+    if (img.lead) {
+      const listed = withListRow(line, decorateLine(line), row);
+      lead = leadHTML(line, img.lead, listed.deco);
+      style = listed.style;
+    }
     b.add(
       l.from,
       l.to,
-      Decoration.replace({ widget: new ImageWidget(line, img.quote, img.alt, img.src, hit.member), block: true }),
+      Decoration.replace({ widget: new ImageWidget(line, img.quote, img.alt, img.src, hit.member, lead, style), block: true }),
     );
   }
-  return { deco: b.finish(), tables, fences, maths };
+  return { deco: b.finish(), tables, fences, maths, images };
 }
 
 /** KaTeX has arrived: typeset the math blocks that showed their TeX meanwhile */
@@ -366,6 +395,11 @@ const blockField = StateField.define<Blocks>({
   },
   provide: (f) => EditorView.decorations.from(f, (blocks) => blocks.deco),
 });
+
+/** Is line `n` a lone image (shown as the picture while no caret is on it)? */
+export function isImage(state: EditorState, n: number): boolean {
+  return state.field(blockField).images.has(n);
+}
 
 /** Is line `n` inside a fenced code block (fences included)? */
 export function inCode(state: EditorState, n: number): boolean {
@@ -472,7 +506,7 @@ function build(view: EditorView): DecorationSet {
       }
       const table = tables.find((t) => lineNo >= t.from && lineNo <= t.to);
       if (table && ![...live].some((k) => k >= table.from && k <= table.to)) continue; // rendered by blockField
-      const img = table ? null : imageLine(text);
+      const img = table ? null : imageLine(text, lists[lineNo - firstNo]);
       const asImage = !!img && !live.has(lineNo);
       const { deco, style } = table
         ? { deco: tableSourceDeco(text, lineNo === table.from + 1), style: '' }

@@ -7,7 +7,7 @@
    same cost as a short one while staying pixel-aligned with the real text. */
 
 import type { EditorView } from '@codemirror/view';
-import { codeLineDeco, decorateLine, fenceRanges, imageLine, lineHTML, listRows, mathLineDeco, mathRanges, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
+import { codeLineDeco, decorateLine, fenceRanges, imageLine, leadHTML, lineHTML, listRows, mathLineDeco, mathRanges, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
 import type { Glide } from './glide';
 import { highlightBlock } from '../editor/highlight';
 import { renderMath } from '../editor/math';
@@ -171,12 +171,14 @@ export function createMinimap(
       if (rail?.member) cls.push('quote');
       if (rail?.lazy) cls.push('qlazy');
       const y = view.lineBlockAt(line.from).top + padTop();
-      const img = imageLine(text);
+      const img = imageLine(text, lists[n - fromLine]);
       let inner: string;
       if (img) {
         const url = img.src ? resolveAsset(img.src) : null;
         // the picture itself is put in after the rows are built (see below), reused if it was shown before
-        inner = url ? `<span class="imgwrap" data-pic></span>` : `<span class="imgwrap"><span class="imgmiss"></span></span>`;
+        inner =
+          leadHTML(text, img.lead, deco) +
+          (url ? `<span class="imgwrap" data-pic></span>` : `<span class="imgwrap"><span class="imgmiss"></span></span>`);
         if (url) wanted.push(url);
         cls.push('imgrow');
       } else {

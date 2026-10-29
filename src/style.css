@@ -135,6 +135,8 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .ln.morecomment{color:#b3a892;font-size:13px;letter-spacing:.5px;}
 .tok{color:var(--tok);}
 .b{font-weight:700;} .i{font-style:italic;}
+/* ~~struck~~: only the text between the tildes (tokens.ts: strikeMarks) */
+.s{text-decoration:line-through;}
 .code{font-family:ui-monospace,Menlo,monospace;font-size:.88em;background:rgba(147,123,116,.05);border-radius:4px;padding:0 3px;}
 .lnk{color:var(--link);} .url{color:#b3a892;font-family:ui-monospace,Menlo,monospace;font-size:.88em;}
 
@@ -144,6 +146,8 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .imgwrap img{max-width:100%;height:auto;display:block;border-radius:2px;}
 .imgsrc{position:absolute;left:0;bottom:0;max-width:100%;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.4;color:#fff;background:rgba(40,32,24,.72);padding:3px 8px;border-radius:0 6px 0 6px;opacity:0;transition:opacity .14s;pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .imgwrap:hover .imgsrc{opacity:1;}
+/* an image in a list: the marker stays in front, the picture starts at the item's text column, its top level with the marker */
+.imgrow.li .imgwrap{vertical-align:top;text-indent:0;}
 .imgmiss{display:inline-flex;align-items:center;gap:6px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#b3452e;background:rgba(179,69,46,.08);border:1px dashed rgba(179,69,46,.4);border-radius:6px;padding:4px 10px;line-height:1.4;}
 
 /* ---- fenced code blocks (tokens.ts: codeLineDeco): one band of monospace, fences dimmed ----

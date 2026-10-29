@@ -26,14 +26,33 @@ const RE_MORE = /^<!--\s*more\s*-->$/;
 const RE_HEAD = /^(#{1,6})(\s+)(.*)$/;
 const RE_QUOTE = /^(>\s?)(.*)$/;
 
-/** Is this line a lone image (optionally inside a blockquote)? */
-export function imageLine(text: string): { quote: string; alt: string; src: string } | null {
+/** A lone image on its line: `quote` is the "> " in front of one inside a blockquote, `lead`
+    the length of the list markup in front of one in a list (0 elsewhere). */
+export type ImageLine = { quote: string; lead: number; alt: string; src: string };
+
+/** Is this line a lone image — bare, inside a blockquote, or in a list? In a list it is the whole
+    text of an item ("- ![](a.png)", "1. ![](a.png)") or an item's indented continuation line;
+    `row` is the line's list row (listScan / listRows), without which neither counts. */
+export function imageLine(text: string, row?: ListRow | null): ImageLine | null {
   let m = text.match(IMG);
-  if (m) return { quote: '', alt: m[1], src: m[2] };
+  if (m) return { quote: '', lead: 0, alt: m[1], src: m[2] };
   m = text.match(QUOTE_IMG);
-  if (m) return { quote: m[1], alt: m[2], src: m[3] };
-  return null;
+  if (m) return { quote: m[1], lead: 0, alt: m[2], src: m[3] };
+  if (!row) return null;
+  const li = listItem(text);
+  if (li ? row.mark === 0 : row.mark !== 0) return null;
+  const lead = li ? li.indent.length + li.marker.length + li.gap.length : /^[ \t]*/.exec(text)![0].length;
+  m = lead ? text.slice(lead).match(IMG) : null;
+  return m ? { quote: '', lead, alt: m[1], src: m[2] } : null;
 }
+
+/** The list markup in front of an image in a list (`lead` characters), as HTML. */
+export function leadHTML(text: string, lead: number, deco: LineDeco): string {
+  return lead ? lineHTML(text.slice(0, lead), { lineClass: '', marks: deco.marks.filter((m) => m.to <= lead) }) : '';
+}
+
+/** Could this line be an image in a list? A cheap test before working out its list row. */
+export const maybeListImage = (text: string) => text.indexOf('![') > 0 && !QLEAD.test(text);
 
 /* ---------- inline ---------- */
 
@@ -104,6 +123,34 @@ export function texMarks(tex: string, base = 0): Mark[] {
   return out;
 }
 
+/* ~~struck~~ — unlike the rules above, it may hold them ("~~**a**~~", "~~[a](b)~~") or sit in
+   them ("**~~a~~**"), so it is matched afterwards, against their marks: it may not cross one,
+   nor lie in code, a formula or a URL. Only the text between the tildes is struck through. */
+const RE_STRIKE = /~~(?=[^~\s])([^~]*?[^~\s])~~/g;
+const LITERAL = new Set(['code', 'math', 'url']);
+
+function strikeMarks(text: string, base: number, marks: Mark[]): Mark[] {
+  const out: Mark[] = [];
+  RE_STRIKE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = RE_STRIKE.exec(text))) {
+    const at = m.index + base;
+    const end = at + m[0].length;
+    const blocked = marks.some(
+      (k) =>
+        (k.from < at && k.to > at && k.to < end) || // crosses its start
+        (k.from > at && k.from < end && k.to > end) || // crosses its end
+        (LITERAL.has(k.cls) && k.from <= at && k.to >= end),
+    );
+    if (blocked) {
+      RE_STRIKE.lastIndex = m.index + 1;
+      continue;
+    }
+    out.push({ from: at, to: at + 2, cls: 'tok' }, { from: at + 2, to: end - 2, cls: 's' }, { from: end - 2, to: end, cls: 'tok' });
+  }
+  return out;
+}
+
 /** Inline marks for a fragment of a line. `base` is the fragment's offset in the line. */
 export function inlineMarks(text: string, base = 0): Mark[] {
   const consumed = new Uint8Array(text.length);
@@ -126,6 +173,7 @@ export function inlineMarks(text: string, base = 0): Mark[] {
       out.push(...rule.marks(m, at + base));
     }
   }
+  if (text.indexOf('~~') >= 0) out.push(...strikeMarks(text, base, out));
   // Stable, renderer-friendly order: outer (longer) spans first at the same offset.
   out.sort((a, b) => a.from - b.from || b.to - a.to);
   return out;
@@ -402,10 +450,10 @@ export function linkParts(text: string, marks: Mark[]): { from: number; to: numb
   const out: { from: number; to: number; head: Mark; tail: Mark }[] = [];
   for (const l of marks) {
     if (l.cls !== 'lnk' || text[l.from - 1] === '!') continue;
-    const toks = marks.filter((m) => m.cls === 'tok' && m.from >= l.from && m.to <= l.to);
-    // `[`, `](`, `)` in that order — see the link rule above
-    if (toks.length < 3) continue;
-    out.push({ from: l.from, to: l.to, head: toks[0], tail: { from: toks[1].from, to: l.to, cls: 'tok' } });
+    // the link text holds no `]`, so the first `](` ends it (a ~~strike~~ in it has marks of its own)
+    const mid = text.indexOf('](', l.from);
+    if (mid < 0 || mid >= l.to) continue;
+    out.push({ from: l.from, to: l.to, head: { from: l.from, to: l.from + 1, cls: 'tok' }, tail: { from: mid, to: l.to, cls: 'tok' } });
   }
   return out;
 }

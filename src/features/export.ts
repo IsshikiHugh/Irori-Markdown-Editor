@@ -21,7 +21,7 @@
 import type { PdfMode, Platform } from '../platform/types';
 import { highlightBlock, loadLanguages } from '../editor/highlight';
 import { basename } from '../platform/paths';
-import { codeLineDeco, decorateLine, fenceScan, imageLine, lineHTML, listScan, mathLineDeco, mathScan, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
+import { codeLineDeco, decorateLine, fenceScan, imageLine, leadHTML, lineHTML, listScan, mathLineDeco, mathScan, quoteScan, tableHTML, tableRanges, withListRow } from '../editor/tokens';
 import { loadMath, renderMath } from '../editor/math';
 
 /** A4 height at 96 CSS px per inch (the width, 210mm, lives in style.css). */
@@ -93,13 +93,13 @@ export function buildRows(text: string, resolveAsset: (src: string) => string | 
     if (deco.lineClass) cls.push(deco.lineClass);
     if (rails[i].member) cls.push('quote');
     if (rails[i].lazy) cls.push('qlazy');
-    const img = imageLine(line);
+    const img = imageLine(line, lists[i]);
     let html: string;
     if (img) {
       cls.push('imgrow');
       const url = img.src ? resolveAsset(img.src) : null;
       const miss = `<span class="imgmiss"${url ? ' style="display:none"' : ''}>⚠ ${img.src ? '图片未找到 · ' + escapeAttr(img.src) : '空图片链接'}</span>`;
-      html = `<span class="imgwrap">${url ? `<img src="${escapeAttr(url)}" alt="${escapeAttr(img.alt)}">` : ''}${miss}</span>`;
+      html = `${leadHTML(line, img.lead, deco)}<span class="imgwrap">${url ? `<img src="${escapeAttr(url)}" alt="${escapeAttr(img.alt)}">` : ''}${miss}</span>`;
     } else {
       html = lineHTML(line, deco, inline);
     }

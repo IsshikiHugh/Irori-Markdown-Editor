@@ -38,7 +38,7 @@ export const cases = [
   },
   {
     id: 'B-02',
-    name: 'Inline decoration: bold/italic/bold-italic/code/link, asterisks do not disappear',
+    name: 'Inline decoration: bold/italic/bold-italic/strikethrough/code/link, asterisks and tildes do not disappear',
     async run(t, ctx) {
       const page = await ctx.open({ files: { '/n/a.md': SAMPLE }, startup: '/n/a.md' });
       // the caret at the link: it shows as source too (away from the caret only its text shows, B-89)
@@ -70,6 +70,18 @@ export const cases = [
       t.eq('link url colored separately', found.url, ['https://example.com/x']);
       t.eq('bold font weight', found.weight, '700');
       t.eq('italic font style', found.style, 'italic');
+      // ~~strike~~: the text between the tildes is struck, the tildes stay and are not
+      await setDoc(page, '甲 ~~删掉~~ 乙');
+      await caretToLine(page, 1);
+      const strike = await page.evaluate(() => {
+        const s = document.querySelector('.cm-content .s');
+        const tok = [...document.querySelectorAll('.cm-content .tok')].map((e) => e.textContent);
+        return { text: s?.textContent, deco: s && getComputedStyle(s).textDecorationLine, tok };
+      });
+      t.eq('struck text', strike.text, '删掉');
+      t.eq('drawn with a line through it', strike.deco, 'line-through');
+      t.eq('the tildes stay, as markup', strike.tok, ['~~', '~~']);
+      t.eq('strike: line text === source', await docText(page), '甲 ~~删掉~~ 乙');
     },
   },
   {
