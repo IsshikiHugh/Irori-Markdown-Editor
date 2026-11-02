@@ -464,7 +464,8 @@ function buildBlocks(state: EditorState): Blocks {
         for (let j = math.from; j <= math.to; j++) caretIn ||= live.has(j);
         if (!caretIn) {
           const first = doc.line(math.from);
-          const at = math.from === math.to ? first.text.indexOf('$$') + 2 : first.length + 1;
+          // a click lands on the first TeX: after the `$$`, or on the next line when it stands alone
+          const at = math.from === math.to || first.text.trim() !== '$$' ? first.text.indexOf('$$') + 2 : first.length + 1;
           const html = renderMath(math.tex, true);
           b.add(
             first.from,

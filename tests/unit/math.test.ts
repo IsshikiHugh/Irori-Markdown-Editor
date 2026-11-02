@@ -40,6 +40,23 @@ describe('math blocks', () => {
     expect(mathScan(lines).map((r) => (r ? r.from : 0))).toEqual([0, 2, 2, 2, 2, 6, 0]);
   });
 
+  it('lets TeX share a line with its opening or closing $$', () => {
+    const lines = ['$$a = b \\\\', 'c = d$$', '', '$$', 'x \\\\', 'y$$', '$$p', '$$'];
+    expect(doc(lines)).toEqual([
+      { from: 1, to: 2, tex: 'a = b \\\\\nc = d' },
+      { from: 4, to: 6, tex: 'x \\\\\ny' },
+      { from: 7, to: 8, tex: 'p' },
+    ]);
+    // a one-line $$x$$ does not close an open block
+    expect(doc(['$$', 'a', '$$x$$'])).toEqual([{ from: 3, to: 3, tex: 'x' }]);
+    const r = { from: 1, to: 2, tex: '' };
+    expect(mathLineDeco('$$\\frac a', r, 1).marks).toEqual([
+      { from: 0, to: 2, cls: 'tok' },
+      { from: 2, to: 7, cls: 'mcmd' },
+    ]);
+    expect(mathLineDeco('b$$', r, 2).marks).toEqual([{ from: 1, to: 3, cls: 'tok' }]);
+  });
+
   it('an unclosed $$ is text; $$ inside a code block is code', () => {
     expect(doc(['$$', 'x'])).toEqual([]);
     expect(doc(['```', '$$', 'x', '$$', '```'])).toEqual([]);

@@ -374,13 +374,17 @@ export function codeLineDeco(text: string, part: Exclude<FencePart, null>): Line
 }
 
 /* ---------- math blocks ----------
-   A `$$` alone on its line opens a block and the next such line closes it; a line that is
-   `$$tex$$` and nothing else is a one-line block. An opening `$$` that is never closed is
-   just text. Away from the caret the block shows rendered (KaTeX, editor/math.ts); with the
-   caret in it, every line is source. Code blocks win: `$$` inside one is code. */
+   A line that starts with `$$` opens a block and the next line that ends with one closes it;
+   TeX may share either line with its `$$` (`$$a \\` … `b$$`). A line that is `$$tex$$` and
+   nothing else is a one-line block. An opening `$$` that is never closed is just text. Away
+   from the caret the block shows rendered (KaTeX, editor/math.ts); with the caret in it,
+   every line is source. Code blocks win: `$$` inside one is code. */
 
 const RE_MATH_FENCE = /^ {0,3}\$\$[ \t]*$/;
 const RE_MATH_ONE = /^ {0,3}\$\$(.*[^\s$].*?)\$\$[ \t]*$/;
+/** the only `$$` on the line, at its start / at its end */
+const RE_MATH_OPEN = /^ {0,3}\$\$(?!.*\$\$)(.*)$/;
+const RE_MATH_CLOSE = /^(?!.*\$\$.*\$\$)(.*?)\$\$[ \t]*$/;
 
 export type MathRange = { from: number; to: number; tex: string };
 
@@ -406,12 +410,16 @@ function mathIn(line: (n: number) => string, lines: number, code: Uint8Array): M
       out.push({ from: n, to: n, tex: one[1].trim() });
       continue;
     }
-    if (!RE_MATH_FENCE.test(text)) continue;
+    const open = RE_MATH_OPEN.exec(text);
+    if (!open) continue;
     let z = n + 1;
-    while (z <= lines && !code[z] && !RE_MATH_FENCE.test(line(z))) z++;
+    while (z <= lines && !code[z] && !RE_MATH_CLOSE.test(line(z))) z++;
     if (z > lines || code[z]) continue;
     const body: string[] = [];
+    if (open[1].trim()) body.push(open[1]);
     for (let k = n + 1; k < z; k++) body.push(line(k));
+    const tail = RE_MATH_CLOSE.exec(line(z))![1];
+    if (tail.trim()) body.push(tail);
     out.push({ from: n, to: z, tex: body.join('\n') });
     n = z;
   }
@@ -436,7 +444,15 @@ export function mathLineDeco(text: string, r: MathRange, n: number): LineDeco {
       marks: [{ from: 0, to: a, cls: 'tok' }, ...texMarks(text.slice(a, z), a), { from: z, to: text.length, cls: 'tok' }],
     };
   }
-  if (n === r.from || n === r.to) return { lineClass: cls, marks: text ? [{ from: 0, to: text.length, cls: 'tok' }] : [] };
+  if (n === r.from || n === r.to) {
+    if (RE_MATH_FENCE.test(text)) return { lineClass: cls, marks: [{ from: 0, to: text.length, cls: 'tok' }] };
+    if (n === r.from) {
+      const a = text.indexOf('$$') + 2;
+      return { lineClass: cls, marks: [{ from: 0, to: a, cls: 'tok' }, ...texMarks(text.slice(a), a)] };
+    }
+    const z = text.lastIndexOf('$$');
+    return { lineClass: cls, marks: [...texMarks(text.slice(0, z)), { from: z, to: text.length, cls: 'tok' }] };
+  }
   return { lineClass: cls, marks: texMarks(text) };
 }
 

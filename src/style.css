@@ -211,7 +211,10 @@ body.overlay-titlebar .mini{--mini-top:32px;}
 .mathrow .katex-display{margin:6px 0;}
 .mathrow .katex{font-size:1.12em;}
 .mathwait{display:block;text-align:center;font-family:ui-monospace,Menlo,monospace;font-size:15px;color:var(--tok);white-space:pre-wrap;}
-.mathr{cursor:text;} .mathr .katex{font-size:1.05em;}
+/* static, not KaTeX's relative: WebKit (the app's webview) does not repaint a relatively
+   positioned inline that the text before it pushes along, so a formula after one turned back
+   into source, or after typed text, stayed drawn where it was */
+.mathr{cursor:text;} .mathr .katex{font-size:1.05em;position:static;}
 .katex .katex-error,span.katex-error{color:#b3452e!important;}
 
 /* ---- tables: rendered away from the caret (editor/decorations.ts), source with it ----
