@@ -19,8 +19,8 @@
 
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import type { DecorationSet, ViewUpdate } from '@codemirror/view';
-import { EditorSelection, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
-import type { EditorState, Extension, Range } from '@codemirror/state';
+import { EditorSelection, EditorState, RangeSetBuilder, StateEffect, StateField } from '@codemirror/state';
+import type { Extension, Range } from '@codemirror/state';
 import {
   codeLineDeco,
   decorateLine,
@@ -54,6 +54,123 @@ export function setAssetResolver(fn: AssetResolver) {
 
 /** natural size cache: re-rendered images reserve space before load, so layout never jumps */
 const NAT = new Map<string, { w: number; h: number }>();
+const warming = new Set<string>();
+
+/** Learn an image's size while its line shows source, so the picture comes back at its full
+    height the moment the caret leaves. */
+function warmSize(src: string) {
+  if (!src || NAT.has(src) || warming.has(src)) return;
+  const url = resolveAsset(src);
+  if (!url) return;
+  warming.add(src);
+  const img = new Image();
+  img.onload = () => {
+    NAT.set(src, { w: img.naturalWidth, h: img.naturalHeight });
+    warming.delete(src);
+  };
+  img.onerror = () => warming.delete(src);
+  img.src = url;
+}
+
+/* ---------- the caret holds still when a block comes back ---------- */
+
+/* Leaving an image line, a table or a math block turns its source rows back into the picture,
+   the table or the formula, whose height differs. CodeMirror keeps the line at the top of the
+   screen in place, so a caret below the block would be pushed by the difference. Instead the
+   caret's line keeps its place on the screen: with the caret above, the block grows (or
+   shrinks) downward; below it, upward. */
+
+/** when the caret last left a block (a picture whose size was unknown re-pins on load) */
+let leftAt = -Infinity;
+
+/** the view a state is shown in — the pin reads the layout as it is before the update */
+const viewOf = new WeakMap<EditorState, EditorView>();
+
+/** CodeMirror's own scroll snapshot, aimed at the line at `pos` instead of the top one: after the
+    update, that line's top sits `offset` px below where the scroller's top is. */
+function pinLine(view: EditorView, pos: number, offset: number): StateEffect<unknown> | null {
+  const snap = view.scrollSnapshot();
+  const target = snap.value as unknown as { range?: unknown; yMargin?: unknown };
+  if (!target || !('range' in target) || typeof target.yMargin !== 'number') return null;
+  Object.assign(target, { range: EditorSelection.cursor(pos), yMargin: offset });
+  return snap;
+}
+
+/** Is this stretch of the document (heights from the document top) wholly on screen? */
+function onScreen(view: EditorView, top: number, bottom: number): boolean {
+  const box = view.scrollDOM.getBoundingClientRect();
+  const at = view.documentTop;
+  return at + top >= box.top - 1 && at + bottom <= box.bottom + 1;
+}
+
+/** Keep the main caret's line where it is on the screen through the next layout change. */
+function holdCaret(view: EditorView) {
+  const line = view.state.doc.lineAt(view.state.selection.main.head);
+  const block = view.lineBlockAt(line.from);
+  if (!onScreen(view, block.top, block.bottom)) return;
+  const pin = pinLine(view, line.from, block.top - view.scrollDOM.scrollTop);
+  if (pin) view.dispatch({ effects: pin });
+}
+
+/** The rendered blocks (an image line, a table, a math block; lines 1-based, inclusive) a caret or
+    selection is in, and that therefore show source. */
+function liveBlocks(state: EditorState): Span[] {
+  const { images, tables, maths } = state.field(blockField);
+  const out: Span[] = [];
+  if (!images.size && !tables.length && !maths.length) return out;
+  for (const r of state.selection.ranges) {
+    const a = state.doc.lineAt(r.from).number;
+    const z = state.doc.lineAt(r.to).number;
+    if (z - a < images.size) {
+      for (let n = a; n <= z; n++) if (images.has(n)) out.push({ from: n, to: n });
+    } else for (const n of images) if (n >= a && n <= z) out.push({ from: n, to: n });
+    for (const b of tables) if (b.from <= z && b.to >= a) out.push(b);
+    for (const b of maths) if (b.from <= z && b.to >= a) out.push(b);
+  }
+  return out;
+}
+
+const pinOnLeave: Extension = [
+  ViewPlugin.define((view) => {
+    viewOf.set(view.state, view);
+    return { update: (u) => void viewOf.set(u.state, u.view) };
+  }),
+  EditorState.transactionExtender.of((tr) => {
+    const view = viewOf.get(tr.startState);
+    if (!view || view.state !== tr.startState || (!tr.selection && !tr.docChanged)) return null;
+    const start = tr.startState;
+    const live = liveBlocks(start);
+    if (!live.length) return null;
+    const doc = tr.newDoc;
+    const sel = tr.newSelection;
+    // a block the carets just left, unchanged (its lines in both numberings)
+    let was: Span | null = null;
+    let now: Span | null = null;
+    for (const b of live) {
+      const from = start.doc.line(b.from).from;
+      const to = start.doc.line(b.to).to;
+      const a = tr.changes.mapPos(from, 1);
+      const z = tr.changes.mapPos(to, -1);
+      if (z < a || doc.sliceString(a, z) !== start.doc.sliceString(from, to)) continue;
+      if (sel.ranges.some((r) => r.from <= z && r.to >= a)) continue;
+      was = b;
+      now = { from: doc.lineAt(a).number, to: doc.lineAt(z).number };
+      break;
+    }
+    if (!was || !now) return null;
+    leftAt = performance.now();
+    // where the caret's new line was on the screen before: its own top — or, when it is a line
+    // just made under the block (Enter at its end), the bottom of the block's last source row
+    const line = doc.lineAt(sel.main.head);
+    const back = tr.changes.invertedDesc.mapPos(line.from, -1);
+    const old = view.lineBlockAt(back);
+    if (!onScreen(view, old.top, old.bottom)) return null; // off screen: ordinary scrolling
+    const backNo = start.doc.lineAt(back).number;
+    const under = backNo >= was.from && backNo <= was.to && line.number > now.to;
+    const pin = pinLine(view, line.from, (under ? old.bottom : old.top) - view.scrollDOM.scrollTop);
+    return pin ? { effects: pin } : null;
+  }),
+];
 
 /* ---------- mouse-hover line (only while the mouse actually moves) ---------- */
 
@@ -113,7 +230,7 @@ class ImageWidget extends WidgetType {
     return other.raw === this.raw && other.railed === this.railed && other.style === this.style;
   }
   /** A block widget REPLACES the line element, so it carries the line's own classes. */
-  override toDOM() {
+  override toDOM(view: EditorView) {
     const row = document.createElement('div');
     row.className = 'ln imgrow' + (this.railed ? ' quote' : '') + (this.lead ? ' li' : '');
     if (this.style) row.setAttribute('style', this.style);
@@ -136,7 +253,13 @@ class ImageWidget extends WidgetType {
       miss.className = 'imgmiss';
       miss.textContent = `⚠ 图片未找到 · ${this.src}`;
       miss.style.display = 'none';
-      img.onload = () => NAT.set(this.src, { w: img.naturalWidth, h: img.naturalHeight });
+      // the caret has just left this line and the picture's size was not known yet: it grows only
+      // now, so hold the caret's line where it is once more
+      const late = !d && performance.now() - leftAt < 100;
+      img.onload = () => {
+        NAT.set(this.src, { w: img.naturalWidth, h: img.naturalHeight });
+        if (late && row.isConnected) holdCaret(view);
+      };
       img.onerror = () => {
         img.style.display = 'none';
         miss.style.display = '';
@@ -361,7 +484,10 @@ function buildBlocks(state: EditorState): Blocks {
     const img = imageLine(line, row);
     if (!img) continue;
     images.add(n);
-    if (live.has(n)) continue;
+    if (live.has(n)) {
+      warmSize(img.src);
+      continue;
+    }
     const l = doc.line(n);
     let lead = '';
     let style = '';
@@ -564,6 +690,7 @@ const languageLoaded = StateEffect.define<null>();
 export const sourceDecoration: Extension = [
   hoverHighlight,
   blockField,
+  pinOnLeave,
   ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;

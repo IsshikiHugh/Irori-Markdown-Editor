@@ -1,6 +1,41 @@
 /* Image lines — the one exception to source decoration.
    Invariant: the line holding the caret is always source; every other image line is always an image. */
+import zlib from 'node:zlib';
 import { caretToLine, docText, sleep } from '../harness.mjs';
+
+/** A plain grey PNG of any size, as base64 (for pictures much taller than a line). */
+function pngOf(w, h) {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc = (buf) => {
+    let c = 0xffffffff;
+    for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+    return (c ^ 0xffffffff) >>> 0;
+  };
+  const chunk = (type, data) => {
+    const body = Buffer.concat([Buffer.from(type), data]);
+    const out = Buffer.alloc(body.length + 8);
+    out.writeUInt32BE(data.length, 0);
+    body.copy(out, 4);
+    out.writeUInt32BE(crc(body), body.length + 4);
+    return out;
+  };
+  const head = Buffer.alloc(13);
+  head.writeUInt32BE(w, 0);
+  head.writeUInt32BE(h, 4);
+  head[8] = 8; // 8-bit greyscale
+  const rows = Buffer.alloc((w + 1) * h, 0xc0);
+  for (let y = 0; y < h; y++) rows[y * (w + 1)] = 0; // filter byte
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', head),
+    chunk('IDAT', zlib.deflateSync(rows)),
+    chunk('IEND', Buffer.alloc(0)),
+  ]).toString('base64');
+}
 
 // 4x3 PNG (red), enough for naturalWidth/Height to be meaningful
 export const PNG =
@@ -169,6 +204,84 @@ export const cases = [
       t.ok('the caret line is source', await page.evaluate(() =>
         [...document.querySelectorAll('.cm-content .cm-line')].some((l) => l.textContent === '- ![](a/pic.png)')), '');
       t.eq('document not rewritten', await docText(page), doc);
+    },
+  },
+  {
+    id: 'B-109',
+    name: 'Leaving an image line keeps the caret where it is on screen: the picture grows away from it',
+    async run(t, ctx) {
+      const lines = [];
+      for (let i = 1; i <= 30; i++) lines.push(`第 ${i} 段`);
+      lines.push('![](a/big.png)'); // line 31
+      for (let i = 32; i <= 70; i++) lines.push(`第 ${i} 段`);
+      const doc = lines.join('\n');
+      const page = await ctx.open({ files: { '/n/a.md': doc }, images: { '/n/a/big.png': pngOf(400, 300) }, startup: '/n/a.md' });
+      // the caret on the image line (source), which sits in the middle of the screen
+      const onImage = async () => {
+        await caretToLine(page, 31);
+        await page.evaluate(() => {
+          const v = window.__irori.view;
+          v.scrollDOM.scrollTop = v.lineBlockAt(v.state.doc.line(31).from).top - 350;
+        });
+        await sleep(150);
+      };
+      const top = (n) =>
+        page.evaluate((n) => {
+          const v = window.__irori.view;
+          return v.coordsAtPos(v.state.doc.line(n).from).top;
+        }, n);
+      const after = () =>
+        page.evaluate(() => {
+          const v = window.__irori.view;
+          const img = document.querySelector('.cm-content .imgwrap img');
+          return {
+            line: v.state.doc.lineAt(v.state.selection.main.head).number,
+            top: v.coordsAtPos(v.state.selection.main.head).top,
+            img: img ? img.getBoundingClientRect().height : 0,
+          };
+        });
+
+      for (const [key, to] of [['ArrowDown', 32], ['ArrowUp', 30]]) {
+        await onImage();
+        const before = await top(to);
+        await page.keyboard.press(key);
+        await sleep(200);
+        const a = await after();
+        t.eq(`${key}: caret on line ${to}`, a.line, to);
+        t.ok(`${key}: the picture is back, taller than a line`, a.img > 200, String(a.img));
+        t.ok(`${key}: the caret did not move on screen`, Math.abs(a.top - before) <= 1, `${before} → ${a.top}`);
+      }
+
+      // a click further down: the clicked line stays under the mouse
+      await onImage();
+      const at = await page.evaluate(() => {
+        const v = window.__irori.view;
+        const c = v.coordsAtPos(v.state.doc.line(36).from + 2);
+        return { x: c.left, y: (c.top + c.bottom) / 2, top: c.top };
+      });
+      await page.mouse.click(at.x, at.y);
+      await sleep(200);
+      const c = await after();
+      t.eq('click: caret on the clicked line', c.line, 36);
+      t.ok('click: the clicked line stayed under the mouse', Math.abs(c.top - at.top) <= 1, `${at.top} → ${c.top}`);
+
+      // Enter at the end of the image line: the new line stays right under where the source row was
+      await onImage();
+      await page.keyboard.press('End');
+      const row = await page.evaluate(() => {
+        const v = window.__irori.view;
+        const b = v.lineBlockAt(v.state.doc.line(31).from);
+        return v.documentTop + b.bottom;
+      });
+      await page.keyboard.press('Enter');
+      await sleep(200);
+      const a = await after();
+      const now = await page.evaluate(() => {
+        const v = window.__irori.view;
+        return v.documentTop + v.lineBlockAt(v.state.selection.main.head).top;
+      });
+      t.eq('Enter: caret on the new line', a.line, 32);
+      t.ok('Enter: the new line starts where the source row ended', Math.abs(now - row) <= 1, `${row} → ${now}`);
     },
   },
 ];

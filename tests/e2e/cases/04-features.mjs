@@ -1033,4 +1033,57 @@ export const cases = [
       t.ok('the mode is off', !top.on, '');
     },
   },
+  {
+    id: 'B-110',
+    name: 'Leaving a table or a math block keeps the caret where it is on screen, like an image line',
+    async run(t, ctx) {
+      const para = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => `第 ${a + i} 段`);
+      const table = ['| 甲 | 乙 |', '| --- | --- |', ...Array.from({ length: 8 }, (_, i) => `| ${i} | 字 |`)];
+      const lines = [
+        ...para(1, 30),
+        ...table, // 31–40
+        ...para(41, 70),
+        '$$\\begin{pmatrix}a\\\\b\\\\c\\\\d\\\\e\\\\f\\\\g\\\\h\\end{pmatrix}$$', // 71
+        ...para(72, 100),
+      ];
+      const page = await ctx.open({ files: { '/n/a.md': lines.join('\n') }, startup: '/n/a.md' });
+      // KaTeX arrives with the first formula on screen
+      await page.evaluate(() => {
+        const v = window.__irori.view;
+        v.scrollDOM.scrollTop = v.lineBlockAt(v.state.doc.line(71).from).top - 300;
+      });
+      await page.waitForFunction(() => document.querySelector('.cm-content .mathrow .katex-display'));
+      const blocks = [
+        { name: 'table', first: 31, last: 40, sel: '.cm-content .tblrow' },
+        { name: 'math block', first: 71, last: 71, sel: '.cm-content .mathrow' },
+      ];
+      for (const b of blocks) {
+        for (const [key, from, to] of [['ArrowDown', b.last, b.last + 1], ['ArrowUp', b.first, b.first - 1]]) {
+          await caretToLine(page, from);
+          await page.evaluate((n) => {
+            const v = window.__irori.view;
+            v.scrollDOM.scrollTop = v.lineBlockAt(v.state.doc.line(n).from).top - 350;
+          }, from);
+          await sleep(150);
+          const before = await page.evaluate((n) => {
+            const v = window.__irori.view;
+            return v.coordsAtPos(v.state.doc.line(n).from).top;
+          }, to);
+          await page.keyboard.press(key);
+          await sleep(200);
+          const a = await page.evaluate((sel) => {
+            const v = window.__irori.view;
+            return {
+              line: v.state.doc.lineAt(v.state.selection.main.head).number,
+              top: v.coordsAtPos(v.state.selection.main.head).top,
+              rendered: !!document.querySelector(sel),
+            };
+          }, b.sel);
+          t.eq(`${b.name}, ${key}: caret on line ${to}`, a.line, to);
+          t.ok(`${b.name}, ${key}: the block is rendered again`, a.rendered, '');
+          t.ok(`${b.name}, ${key}: the caret did not move on screen`, Math.abs(a.top - before) <= 1, `${before} → ${a.top}`);
+        }
+      }
+    },
+  },
 ];
