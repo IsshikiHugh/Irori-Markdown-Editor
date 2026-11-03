@@ -1,5 +1,22 @@
 # 更新记录
 
+## v0.1.20 — 2026-11-02
+
+### 修复
+
+- **滚动时全文不再忽长忽短**：图片（包括 GIF）、表格和公式块不论有没有显示在屏幕上，都按真实大小占好位置。上下滚动或拖右侧缩略图时，全文不会再因为它们进出屏幕而突然收缩或变长，缩略图的框也不再跳。
+
+### 安装
+
+- 已安装 v0.1.7 或更新版本的，打开 Irori 后会收到更新提示，点「更新」即可。
+- **macOS**：`Irori_0.1.20_aarch64.dmg`（Apple Silicon）、`Irori_0.1.20_x64.dmg`（Intel）
+- **Windows**：`Irori_0.1.20_x64-setup.exe` 或 `Irori_0.1.20_x64_en-US.msi`，任选其一
+- **Linux**：`.deb`、`.rpm` 与 `.AppImage`
+
+安装包尚未签名。macOS 若提示应用「已损坏」，可在终端执行
+`xattr -dr com.apple.quarantine /Applications/Irori.app` 后再打开；
+Windows 若出现 SmartScreen 提示，选择「更多信息 → 仍要运行」。
+
 ## v0.1.19 — 2026-11-02
 
 ### 书写
