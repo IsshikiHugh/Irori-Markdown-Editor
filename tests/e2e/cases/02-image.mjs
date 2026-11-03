@@ -284,4 +284,44 @@ export const cases = [
       t.ok('Enter: the new line starts where the source row ended', Math.abs(now - row) <= 1, `${row} → ${now}`);
     },
   },
+  {
+    id: 'B-111',
+    name: 'A picture, a table or a formula takes its full height in the document before it is drawn: scrolling through never changes the length',
+    async run(t, ctx) {
+      // short Chinese lines (CodeMirror cannot measure its default line on them) and many pictures
+      // (plain, in a list and in a quote), tables and math blocks, most of them far off screen. No heading: off screen, a
+      // heading counts as a body line until it is drawn — that is CodeMirror's guess for text
+      const lines = [];
+      for (let i = 0; i < 40; i++) {
+        lines.push(`第 ${i} 段，一些文字。`, '', `![](a/p${i % 3}.png)`, '');
+        if (i % 4 === 1) lines.push(`- 列表 ${i}`, `- ![](a/p${(i + 1) % 3}.png)`, '');
+        if (i % 4 === 3) lines.push('> 引用', '> ![](a/p2.png)', '');
+        if (i % 4 === 0) lines.push('| 名称 | 数值 |', '| --- | --- |', `| a${i} | $x^2$ |`, '| b | 2 |', '');
+        if (i % 4 === 2) lines.push('$$', `\\sum_{k=1}^{${i + 2}} \\frac{1}{k^2}`, '$$', '');
+      }
+      const page = await ctx.open({
+        files: { '/n/a.md': lines.join('\n') },
+        images: { '/n/a/p0.png': pngOf(900, 500), '/n/a/p1.png': pngOf(300, 420), '/n/a/p2.png': pngOf(640, 200) },
+        startup: '/n/a.md',
+      });
+      await sleep(600);
+      const height = () => page.evaluate(() => window.__irori.view.scrollDOM.scrollHeight);
+      const first = await height();
+      t.ok('the pictures count at their size from the start', first > 40 * 200, String(first));
+      const seen = [first];
+      for (let k = 0; k < 200; k++) {
+        const end = await page.evaluate(() => {
+          const s = window.__irori.view.scrollDOM;
+          const was = s.scrollTop;
+          s.scrollTop += 500;
+          return s.scrollTop === was;
+        });
+        await sleep(40);
+        seen.push(await height());
+        if (end) break;
+      }
+      const spread = Math.max(...seen) - Math.min(...seen);
+      t.ok('the length held while scrolling to the end', spread <= 2, `${Math.min(...seen)}…${Math.max(...seen)}`);
+    },
+  },
 ];

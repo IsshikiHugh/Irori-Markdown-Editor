@@ -1019,7 +1019,9 @@ export const cases = [
       await settled(page);
       const rising = await toggle();
       t.ok('the switch answers the click at once', !(await page.evaluate(() => document.querySelector('#tseg i[data-on="1"]').classList.contains('on'))), '');
-      t.ok('the row rises frame by frame instead of cutting', Math.max(...rising.slice(1, 4).map((y) => Math.abs(y - rising[0]))) < 20, rising.slice(0, 6).map((y) => y.toFixed(0)).join(' '));
+      // a cut would cover the whole ~320px rise in one frame; a glide covers less than a line (39px)
+      // in its first three
+      t.ok('the row rises frame by frame instead of cutting', Math.max(...rising.slice(1, 4).map((y) => Math.abs(y - rising[0]))) < 39, rising.slice(0, 6).map((y) => y.toFixed(0)).join(' '));
       await settled(page);
       const top = await page.evaluate(() => ({
         caret: window.__irori.view.coordsAtPos(0).top - window.__irori.view.scrollDOM.getBoundingClientRect().top,

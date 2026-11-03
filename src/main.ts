@@ -10,6 +10,7 @@ import { DocumentSession } from './app/document';
 import { storeImage, UnsavedDocumentError } from './app/images';
 import { applyFont, createEditor, resetHistory, setLocked } from './editor';
 import { onLanguageLoaded } from './editor/highlight';
+import { onBlocksResized } from './editor/decorations';
 import { mathReady, onMathLoaded } from './editor/math';
 import { createTOC } from './features/toc';
 import { createMinimap } from './features/minimap';
@@ -226,6 +227,9 @@ async function boot() {
   onLanguageLoaded(() => minimap.invalidate());
   // so did KaTeX, for its math blocks
   onMathLoaded(() => minimap.invalidate());
+  // pictures, tables and formulas took their full height in the document (picture sizes arrived,
+  // or the column changed): the rows below moved, once CodeMirror has laid them out
+  onBlocksResized(() => view.requestMeasure({ read: () => 0, write: () => queueMicrotask(() => minimap.invalidate()) }));
   // and a font (KaTeX's rarer faces load on first use) changes the size of what it drew
   document.fonts?.addEventListener('loadingdone', () => minimap.invalidate());
 

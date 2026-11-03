@@ -65,6 +65,12 @@ body.overlay-titlebar .mini{--mini-top:32px;}
    the line highlight. */
 .cm-editor .cm-content{max-width:652px;margin:0 auto;padding:44px 0 85vh;caret-color:transparent;}
 .cm-editor .cm-line{padding:0;}
+/* CodeMirror guesses the height of every line it has not drawn from one "default line" it measures:
+   a short plain-ASCII line on screen, or else a bare .cm-line of its own. Chinese text never
+   qualifies, so the bare line decides — and it must measure as a body row (.ln), or every line off
+   screen counts at the wrong height. When the guess changes, CodeMirror re-estimates the whole
+   document, which is what made it suddenly shrink or grow while scrolling. */
+.cm-editor .cm-content{font-size:19px;line-height:2.05;}
 /* Head ornament: tells you "this is the very start of the text". Two hairlines tapering toward the
    middle, cradling a hollow diamond — the same vocabulary as the ◆ marking the current section in
    the TOC. Drawn in the content box's top padding (pseudo-elements): takes no line, changes no

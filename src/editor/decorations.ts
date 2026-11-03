@@ -52,25 +52,190 @@ export function setAssetResolver(fn: AssetResolver) {
   resolveAsset = fn;
 }
 
-/** natural size cache: re-rendered images reserve space before load, so layout never jumps */
-const NAT = new Map<string, { w: number; h: number }>();
-const warming = new Set<string>();
+/* ---------- a block takes its full room, drawn or not ---------- */
 
-/** Learn an image's size while its line shows source, so the picture comes back at its full
-    height the moment the caret leaves. */
-function warmSize(src: string) {
-  if (!src || NAT.has(src) || warming.has(src)) return;
-  const url = resolveAsset(src);
-  if (!url) return;
-  warming.add(src);
-  const img = new Image();
-  img.onload = () => {
-    NAT.set(src, { w: img.naturalWidth, h: img.naturalHeight });
-    warming.delete(src);
-  };
-  img.onerror = () => warming.delete(src);
-  img.src = url;
+/* CodeMirror draws only the lines near the screen. For a block it has not drawn it takes the
+   widget's estimatedHeight — and without one a picture, a table or a formula counted as one line
+   of text, so the document grew by its height each time one scrolled into view: the scrollbar and
+   the minimap jumped, and dragging the minimap fought a document that kept changing length.
+   So every picture's size is learned as soon as the document is read, and every block's height is
+   worked out from the same CSS the editor draws it with, in a hidden probe in the editor's column. */
+
+type Size = { w: number; h: number };
+/** natural size of each picture, by url */
+const NAT = new Map<string, Size>();
+const warming = new Set<string>();
+/** urls that did not load: not asked for again on every rebuild */
+const failed = new Set<string>();
+const queue: string[] = [];
+let loading = 0;
+/** pictures read at once — a document may hold hundreds */
+const MAX_LOADS = 4;
+
+/** Tell the views that sizes (or the column they are laid out in) changed — batched, since a
+    document's pictures arrive one after another. */
+const sizedFns = new Set<() => void>();
+let sizedTimer: ReturnType<typeof setTimeout> | null = null;
+function sized() {
+  sizedTimer ??= setTimeout(() => {
+    sizedTimer = null;
+    for (const fn of sizedFns) fn();
+  }, 30);
 }
+/** Pictures got their sizes, or the column changed: the blocks were laid out again. */
+export function onBlocksResized(fn: () => void): () => void {
+  sizedFns.add(fn);
+  return () => sizedFns.delete(fn);
+}
+
+function learn(url: string, w: number, h: number) {
+  if (!w || !h || NAT.has(url)) return;
+  NAT.set(url, { w, h });
+  sized();
+}
+
+function sizeOf(src: string): Size | null {
+  const url = src ? resolveAsset(src) : null;
+  return (url && NAT.get(url)) || null;
+}
+
+/** Read a picture's size, without showing it. */
+function warmSize(src: string) {
+  const url = src ? resolveAsset(src) : null;
+  if (!url || NAT.has(url) || warming.has(url) || failed.has(url)) return;
+  warming.add(url);
+  queue.push(url);
+  pump();
+}
+function pump() {
+  while (loading < MAX_LOADS && queue.length) {
+    const url = queue.shift()!;
+    loading++;
+    const img = new Image();
+    const done = () => {
+      loading--;
+      warming.delete(url);
+      pump();
+    };
+    img.onload = () => {
+      learn(url, img.naturalWidth, img.naturalHeight);
+      done();
+    };
+    img.onerror = () => {
+      failed.add(url);
+      done();
+    };
+    img.src = url;
+  }
+}
+
+/** the text column's width, as the editor lays it out (0 until the view has measured it) */
+let column = 0;
+/** the font the rows are set in — a change alters the line box around a picture */
+let columnFont = '';
+/** bumped when the column or its font changes: every block's height must be worked out again */
+let layoutEpoch = 0;
+/** a hidden box in the editor's column, to measure rows with the editor's classes in */
+let probe: HTMLElement | null = null;
+/** per kind of row (plain / in a quote / in a list): height with an empty picture, what a row adds
+    to the picture's height, and the width a picture may take */
+const rowKinds = new Map<string, { min: number; extra: number; avail: number }>();
+
+function rowKind(railed: boolean, lead: string, style: string) {
+  const key = `${railed ? 1 : 0}|${style}|${lead}`;
+  const hit = rowKinds.get(key);
+  if (hit || !probe || !column) return hit ?? null;
+  probe.style.width = column + 'px';
+  const row = document.createElement('div');
+  row.className = 'ln imgrow' + (railed ? ' quote' : '') + (lead ? ' li' : '');
+  if (style) row.setAttribute('style', style);
+  if (lead) row.innerHTML = lead;
+  const wrap = document.createElement('span');
+  wrap.className = 'imgwrap';
+  const pic = document.createElement('span');
+  pic.style.cssText = 'display:block;width:1px;height:0';
+  wrap.appendChild(pic);
+  row.appendChild(wrap);
+  probe.appendChild(row);
+  const min = row.getBoundingClientRect().height;
+  pic.style.height = '1000px';
+  const extra = row.getBoundingClientRect().height - 1000;
+  const cs = getComputedStyle(row);
+  const avail = row.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+  row.remove();
+  const kind = { min, extra, avail };
+  rowKinds.set(key, kind);
+  return kind;
+}
+
+/** heights of tables and formulas as drawn, by their class and content */
+const blockHeights = new Map<string, number>();
+const BLOCK_HEIGHTS_MAX = 2000;
+
+/** The height of a row with class `cls` holding `html`, laid out in the editor's column (-1 before
+    the view has measured the column). */
+function blockHeight(cls: string, html: string): number {
+  if (!probe || !column) return -1;
+  const key = cls + '\n' + html;
+  const hit = blockHeights.get(key);
+  if (hit != null) return hit;
+  probe.style.width = column + 'px';
+  const row = document.createElement('div');
+  row.className = cls;
+  row.innerHTML = html;
+  probe.appendChild(row);
+  const h = row.getBoundingClientRect().height;
+  row.remove();
+  if (blockHeights.size >= BLOCK_HEIGHTS_MAX) blockHeights.clear();
+  blockHeights.set(key, h);
+  return h;
+}
+
+/** Keeps `column` and the probe up to date for one view. */
+const blockGeometry = ViewPlugin.fromClass(
+  class {
+    host: HTMLElement;
+    constructor(readonly view: EditorView) {
+      // clipped to nothing, so it never adds to what the scroller can scroll
+      this.host = document.createElement('div');
+      this.host.setAttribute('aria-hidden', 'true');
+      this.host.style.cssText = 'position:absolute;left:0;top:0;height:0;overflow:hidden;visibility:hidden;pointer-events:none';
+      view.scrollDOM.appendChild(this.host);
+      probe = this.host;
+      this.measure();
+    }
+    measure() {
+      this.view.requestMeasure({
+        read: (view) => {
+          const cs = getComputedStyle(view.contentDOM);
+          const width = view.contentDOM.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+          return { width, font: cs.fontFamily };
+        },
+        write: ({ width, font }) => {
+          if (width <= 0 || (Math.abs(width - column) < 0.5 && font === columnFont)) return;
+          column = width;
+          columnFont = font;
+          // the editor sets the body font on its content, not on the scroller the probe sits in
+          this.host.style.fontFamily = font;
+          rowKinds.clear();
+          blockHeights.clear();
+          layoutEpoch++;
+          sized();
+        },
+      });
+    }
+    update(u: ViewUpdate) {
+      if (u.geometryChanged) this.measure();
+    }
+    destroy() {
+      this.host.remove();
+      if (probe === this.host) probe = null;
+    }
+  },
+);
+
+/** pictures got sizes, or the column changed: lay the blocks out again */
+const blocksResized = StateEffect.define<null>();
 
 /* ---------- the caret holds still when a block comes back ---------- */
 
@@ -223,11 +388,41 @@ class ImageWidget extends WidgetType {
     /** in a list: the list markup in front of the picture, and the row's grid widths */
     readonly lead = '',
     readonly style = '',
+    /** the picture's natural size, once known */
+    readonly size: Size | null = null,
+    /** the layout (column and font) the row was worked out for */
+    readonly epoch = 0,
   ) {
     super();
   }
   override eq(other: ImageWidget) {
-    return other.raw === this.raw && other.railed === this.railed && other.style === this.style;
+    return (
+      other.raw === this.raw &&
+      other.railed === this.railed &&
+      other.style === this.style &&
+      other.size?.w === this.size?.w &&
+      other.size?.h === this.size?.h &&
+      other.epoch === this.epoch
+    );
+  }
+  /** the row's height before it is drawn, so the document keeps its length while it is off screen */
+  override get estimatedHeight() {
+    const kind = this.size ? rowKind(this.railed, this.lead, this.style) : null;
+    if (!kind || !this.size) return -1;
+    const h = (Math.min(this.size.w, kind.avail) * this.size.h) / this.size.w;
+    return Math.max(kind.min, h + kind.extra);
+  }
+  /** only the size became known (or the column changed): the picture already drawn stays */
+  override updateDOM(dom: HTMLElement) {
+    const was = drawnBy.get(dom);
+    if (!was || was.raw !== this.raw || was.railed !== this.railed || was.style !== this.style) return false;
+    const img = dom.querySelector('img');
+    if (img && this.size && !img.getAttribute('width')) {
+      img.width = this.size.w;
+      img.height = this.size.h;
+    }
+    drawnBy.set(dom, this);
+    return true;
   }
   /** A block widget REPLACES the line element, so it carries the line's own classes. */
   override toDOM(view: EditorView) {
@@ -244,7 +439,7 @@ class ImageWidget extends WidgetType {
     if (this.src && url) {
       const img = document.createElement('img');
       img.alt = this.alt;
-      const d = NAT.get(this.src);
+      const d = this.size ?? NAT.get(url);
       if (d) {
         img.width = d.w;
         img.height = d.h;
@@ -257,7 +452,7 @@ class ImageWidget extends WidgetType {
       // now, so hold the caret's line where it is once more
       const late = !d && performance.now() - leftAt < 100;
       img.onload = () => {
-        NAT.set(this.src, { w: img.naturalWidth, h: img.naturalHeight });
+        learn(url, img.naturalWidth, img.naturalHeight);
         if (late && row.isConnected) holdCaret(view);
       };
       img.onerror = () => {
@@ -273,12 +468,16 @@ class ImageWidget extends WidgetType {
       wrap.append(miss, cap);
     }
     row.appendChild(wrap);
+    drawnBy.set(row, this);
     return row;
   }
   override ignoreEvent() {
     return false;
   }
 }
+
+/** which widget drew a picture row */
+const drawnBy = new WeakMap<HTMLElement, ImageWidget>();
 
 /* ---------- table widget ---------- */
 
@@ -289,11 +488,17 @@ class TableWidget extends WidgetType {
     readonly lines: string[],
     /** KaTeX has arrived — the cells' inline math shows typeset */
     readonly ready: boolean,
+    /** the layout (column and font) the height was worked out for */
+    readonly epoch = 0,
   ) {
     super();
   }
   override eq(other: TableWidget) {
-    return other.lines.join('\n') === this.lines.join('\n') && other.ready === this.ready;
+    return other.lines.join('\n') === this.lines.join('\n') && other.ready === this.ready && other.epoch === this.epoch;
+  }
+  /** the table's height before it is drawn, so the document keeps its length while it is off screen */
+  override get estimatedHeight() {
+    return blockHeight('ln tblrow', tableHTML(this.lines, inlineMath));
   }
   override toDOM(view: EditorView) {
     const row = document.createElement('div');
@@ -331,11 +536,22 @@ class MathWidget extends WidgetType {
     readonly at: number,
     /** KaTeX has arrived — until then the block shows its TeX, dimmed */
     readonly ready: boolean,
+    /** the layout (column and font) the height was worked out for */
+    readonly epoch = 0,
   ) {
     super();
   }
   override eq(other: MathWidget) {
-    return other.tex === this.tex && other.at === this.at && other.ready === this.ready;
+    return other.tex === this.tex && other.at === this.at && other.ready === this.ready && other.epoch === this.epoch;
+  }
+  /** the formula's height before it is drawn, so the document keeps its length while it is off screen */
+  override get estimatedHeight() {
+    const html = renderMath(this.tex, true);
+    if (html != null) return blockHeight('ln mathrow', html);
+    const wait = document.createElement('span');
+    wait.className = 'mathwait';
+    wait.textContent = this.tex;
+    return blockHeight('ln mathrow', wait.outerHTML);
   }
   override toDOM(view: EditorView) {
     const row = document.createElement('div');
@@ -451,7 +667,7 @@ function buildBlocks(state: EditorState): Blocks {
         b.add(
           doc.line(table.from).from,
           doc.line(table.to).to,
-          Decoration.replace({ widget: new TableWidget(lines, ready), block: true }),
+          Decoration.replace({ widget: new TableWidget(lines, ready, layoutEpoch), block: true }),
         );
       }
     }
@@ -470,7 +686,7 @@ function buildBlocks(state: EditorState): Blocks {
           b.add(
             first.from,
             doc.line(math.to).to,
-            Decoration.replace({ widget: new MathWidget(math.tex, at, html != null), block: true }),
+            Decoration.replace({ widget: new MathWidget(math.tex, at, html != null, layoutEpoch), block: true }),
           );
         }
       }
@@ -485,10 +701,8 @@ function buildBlocks(state: EditorState): Blocks {
     const img = imageLine(line, row);
     if (!img) continue;
     images.add(n);
-    if (live.has(n)) {
-      warmSize(img.src);
-      continue;
-    }
+    warmSize(img.src);
+    if (live.has(n)) continue;
     const l = doc.line(n);
     let lead = '';
     let style = '';
@@ -500,7 +714,10 @@ function buildBlocks(state: EditorState): Blocks {
     b.add(
       l.from,
       l.to,
-      Decoration.replace({ widget: new ImageWidget(line, img.quote, img.alt, img.src, hit.member, lead, style), block: true }),
+      Decoration.replace({
+        widget: new ImageWidget(line, img.quote, img.alt, img.src, hit.member, lead, style, sizeOf(img.src), layoutEpoch),
+        block: true,
+      }),
     );
   }
   return { deco: b.finish(), tables, fences, maths, images };
@@ -512,7 +729,7 @@ const mathLoaded = StateEffect.define<null>();
 const blockField = StateField.define<Blocks>({
   create: buildBlocks,
   update(blocks, tr) {
-    if (tr.effects.some((e) => e.is(mathLoaded))) return buildBlocks(tr.state);
+    if (tr.effects.some((e) => e.is(mathLoaded) || e.is(blocksResized))) return buildBlocks(tr.state);
     if (!tr.docChanged && !tr.selection) return blocks;
     if (tr.selection && !tr.docChanged) {
       // only matters when a caret (any of them) moved to a different line
@@ -692,6 +909,7 @@ export const sourceDecoration: Extension = [
   hoverHighlight,
   blockField,
   pinOnLeave,
+  blockGeometry,
   ViewPlugin.fromClass(
     class {
       decorations: DecorationSet;
@@ -701,6 +919,7 @@ export const sourceDecoration: Extension = [
         this.offs = [
           onLanguageLoaded(() => view.dispatch({ effects: languageLoaded.of(null) })),
           onMathLoaded(() => view.dispatch({ effects: mathLoaded.of(null) })),
+          onBlocksResized(() => view.dispatch({ effects: blocksResized.of(null) })),
         ];
       }
       destroy() {
